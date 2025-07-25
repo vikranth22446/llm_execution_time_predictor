@@ -1,0 +1,305 @@
+{
+  "total_experiments": 95,
+  "batch_size_analysis": {
+    "1": {
+      "num_experiments": 15,
+      "avg_prefill_latency": 0.11172544124225775,
+      "avg_decode_latency": 0.007771073716382185,
+      "prefill_throughput_range": {
+        "min": 18.00196748123305,
+        "max": 25699.657214164297
+      },
+      "decode_throughput_range": {
+        "min": 111.43293772047414,
+        "max": 137.8737078775762
+      }
+    },
+    "2": {
+      "num_experiments": 15,
+      "avg_prefill_latency": 0.20598574206233025,
+      "avg_decode_latency": 0.00788432527333498,
+      "prefill_throughput_range": {
+        "min": 173.5382391492319,
+        "max": 27964.931679552155
+      },
+      "decode_throughput_range": {
+        "min": 196.2687045499682,
+        "max": 278.70605274988606
+      }
+    },
+    "4": {
+      "num_experiments": 15,
+      "avg_prefill_latency": 0.4091091523567835,
+      "avg_decode_latency": 0.008353687264025212,
+      "prefill_throughput_range": {
+        "min": 332.34922361624245,
+        "max": 29248.821080502406
+      },
+      "decode_throughput_range": {
+        "min": 305.7580623035027,
+        "max": 545.2365444561589
+      }
+    },
+    "8": {
+      "num_experiments": 14,
+      "avg_prefill_latency": 0.3666242147529764,
+      "avg_decode_latency": 0.008404257441205638,
+      "prefill_throughput_range": {
+        "min": 714.009300977078,
+        "max": 29950.21235793029
+      },
+      "decode_throughput_range": {
+        "min": 609.2842282916724,
+        "max": 1087.3940563778235
+      }
+    },
+    "16": {
+      "num_experiments": 13,
+      "avg_prefill_latency": 0.35874763553818834,
+      "avg_decode_latency": 0.008639756446847549,
+      "prefill_throughput_range": {
+        "min": 1410.860736226901,
+        "max": 30522.08936415849
+      },
+      "decode_throughput_range": {
+        "min": 1195.33736838143,
+        "max": 2115.508790387685
+      }
+    },
+    "32": {
+      "num_experiments": 12,
+      "avg_prefill_latency": 0.36948999560748536,
+      "avg_decode_latency": 0.008956853843604526,
+      "prefill_throughput_range": {
+        "min": 2706.0515971417703,
+        "max": 30923.720386381192
+      },
+      "decode_throughput_range": {
+        "min": 2335.858202809917,
+        "max": 4066.997351578619
+      }
+    },
+    "64": {
+      "num_experiments": 11,
+      "avg_prefill_latency": 0.3922935998575254,
+      "avg_decode_latency": 0.009832663122903217,
+      "prefill_throughput_range": {
+        "min": 5291.886636328955,
+        "max": 31162.556923703458
+      },
+      "decode_throughput_range": {
+        "min": 3907.8724972962573,
+        "max": 7627.487705521679
+      }
+    }
+  },
+  "input_length_analysis": {
+    "1": {
+      "num_experiments": 7,
+      "avg_prefill_latency": 0.017939159646630287,
+      "avg_decode_latency": 0.007641790567764214,
+      "prefill_throughput_range": {
+        "min": 18.00196748123305,
+        "max": 5291.886636328955
+      },
+      "decode_throughput_range": {
+        "min": 128.4407212400644,
+        "max": 7627.487705521679
+      }
+    },
+    "2": {
+      "num_experiments": 7,
+      "avg_prefill_latency": 0.012069167037095343,
+      "avg_decode_latency": 0.007566394284367561,
+      "prefill_throughput_range": {
+        "min": 167.08350185100363,
+        "max": 10419.910540929695
+      },
+      "decode_throughput_range": {
+        "min": 137.8604314117465,
+        "max": 7622.162019205066
+      }
+    },
+    "4": {
+      "num_experiments": 7,
+      "avg_prefill_latency": 0.012205771968833037,
+      "avg_decode_latency": 0.007575330457517079,
+      "prefill_throughput_range": {
+        "min": 345.1218559420673,
+        "max": 16500.45273005695
+      },
+      "decode_throughput_range": {
+        "min": 137.8737078775762,
+        "max": 7614.699133544357
+      }
+    },
+    "8": {
+      "num_experiments": 7,
+      "avg_prefill_latency": 0.0135392677038908,
+      "avg_decode_latency": 0.007607869271721158,
+      "prefill_throughput_range": {
+        "min": 709.6818017033154,
+        "max": 22643.94047303608
+      },
+      "decode_throughput_range": {
+        "min": 137.4896200468627,
+        "max": 7582.426328256019
+      }
+    },
+    "16": {
+      "num_experiments": 7,
+      "avg_prefill_latency": 0.017274124414793084,
+      "avg_decode_latency": 0.007666954903730324,
+      "prefill_throughput_range": {
+        "min": 1425.0562112642842,
+        "max": 26301.260609462297
+      },
+      "decode_throughput_range": {
+        "min": 137.1111853443212,
+        "max": 7508.675879506251
+      }
+    },
+    "32": {
+      "num_experiments": 7,
+      "avg_prefill_latency": 0.02600881816553218,
+      "avg_decode_latency": 0.0077794814216239115,
+      "prefill_throughput_range": {
+        "min": 2851.6639094286056,
+        "max": 28172.73322781802
+      },
+      "decode_throughput_range": {
+        "min": 136.48709899498968,
+        "max": 7386.098415996571
+      }
+    },
+    "64": {
+      "num_experiments": 7,
+      "avg_prefill_latency": 0.04370340186038187,
+      "avg_decode_latency": 0.007996316333966596,
+      "prefill_throughput_range": {
+        "min": 5540.986618883087,
+        "max": 30267.748723138448
+      },
+      "decode_throughput_range": {
+        "min": 135.00241264821616,
+        "max": 7194.9257311956535
+      }
+    },
+    "128": {
+      "num_experiments": 7,
+      "avg_prefill_latency": 0.07999432353036744,
+      "avg_decode_latency": 0.00819653139582702,
+      "prefill_throughput_range": {
+        "min": 11328.115756025607,
+        "max": 30874.14399290141
+      },
+      "decode_throughput_range": {
+        "min": 132.06781258736683,
+        "max": 6844.276946333667
+      }
+    },
+    "256": {
+      "num_experiments": 7,
+      "avg_prefill_latency": 0.15443966843719995,
+      "avg_decode_latency": 0.008542735129594803,
+      "prefill_throughput_range": {
+        "min": 15375.086729898087,
+        "max": 31162.556923703458
+      },
+      "decode_throughput_range": {
+        "min": 130.4468677813282,
+        "max": 6185.089189539235
+      }
+    },
+    "512": {
+      "num_experiments": 7,
+      "avg_prefill_latency": 0.3041825005784631,
+      "avg_decode_latency": 0.008947914599307947,
+      "prefill_throughput_range": {
+        "min": 22280.74946533859,
+        "max": 30969.115622460682
+      },
+      "decode_throughput_range": {
+        "min": 129.37630494844788,
+        "max": 5174.830458326145
+      }
+    },
+    "1024": {
+      "num_experiments": 7,
+      "avg_prefill_latency": 0.615091359375843,
+      "avg_decode_latency": 0.00985684378870896,
+      "prefill_throughput_range": {
+        "min": 24691.78217169327,
+        "max": 30391.5164085054
+      },
+      "decode_throughput_range": {
+        "min": 125.69517117325088,
+        "max": 3907.8724972962573
+      }
+    },
+    "2048": {
+      "num_experiments": 6,
+      "avg_prefill_latency": 0.7386627621017396,
+      "avg_decode_latency": 0.009641852850715319,
+      "prefill_throughput_range": {
+        "min": 24983.564652890327,
+        "max": 29302.527127295063
+      },
+      "decode_throughput_range": {
+        "min": 121.69699365618068,
+        "max": 2335.858202809917
+      }
+    },
+    "4096": {
+      "num_experiments": 5,
+      "avg_prefill_latency": 0.9361425660550594,
+      "avg_decode_latency": 0.009854598343372345,
+      "prefill_throughput_range": {
+        "min": 25699.657214164297,
+        "max": 27227.705640878605
+      },
+      "decode_throughput_range": {
+        "min": 119.26460070851765,
+        "max": 1195.33736838143
+      }
+    },
+    "8192": {
+      "num_experiments": 4,
+      "avg_prefill_latency": 1.292246045311913,
+      "avg_decode_latency": 0.010184167651459575,
+      "prefill_throughput_range": {
+        "min": 23110.729222310536,
+        "max": 23839.11689540068
+      },
+      "decode_throughput_range": {
+        "min": 118.00442194372539,
+        "max": 609.2842282916724
+      }
+    },
+    "16384": {
+      "num_experiments": 3,
+      "avg_prefill_latency": 2.030355442004899,
+      "avg_decode_latency": 0.01074878592044115,
+      "prefill_throughput_range": {
+        "min": 18647.015557738963,
+        "max": 19126.438134153475
+      },
+      "decode_throughput_range": {
+        "min": 111.43293772047414,
+        "max": 305.7580623035027
+      }
+    }
+  },
+  "overall_stats": {
+    "prefill_latency": {
+      "min": 0.011112908832728863,
+      "max": 3.5145570505410433,
+      "mean": 0.3099776089387505
+    },
+    "decode_latency": {
+      "min": 0.007176019251346588,
+      "max": 0.016377197578549385,
+      "mean": 0.00848162391860234
+    }
+  }
+}
