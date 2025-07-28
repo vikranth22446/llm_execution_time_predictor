@@ -479,6 +479,7 @@ def latency_test(
     port_args,
     bench_args,
     tp_rank,
+    disable_rank_print=True
 ):
     # Set CPU affinity
     if get_bool_env_var("SGLANG_SET_CPU_AFFINITY"):
@@ -486,7 +487,10 @@ def latency_test(
 
     # Configure the logger
     configure_logger(server_args, prefix=f" TP{tp_rank}")
-    rank_print = print if tp_rank == 0 else lambda *args, **kwargs: None
+    if disable_rank_print:
+        rank_print = lambda *args, **kwargs: None
+    else:
+        rank_print = print if tp_rank == 0 else lambda *args, **kwargs: None
 
     # Load the model
     model_runner, tokenizer = load_model(server_args, port_args, tp_rank)
