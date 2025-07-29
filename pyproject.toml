@@ -47,10 +47,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/llm_execution_time_predictor"
-Repository = "https://github.com/yourusername/llm_execution_time_predictor"
-Documentation = "https://github.com/yourusername/llm_execution_time_predictor#readme"
-"Bug Tracker" = "https://github.com/yourusername/llm_execution_time_predictor/issues"
+Homepage = "https://github.com/vikranth22446/llm_execution_time_predictor"
+Repository = "https://github.com/vikranth22446/llm_execution_time_predictor"
+Documentation = "https://github.com/vikranth22446/llm_execution_time_predictor#readme"
+"Bug Tracker" = "https://github.com/vikranth22446/llm_execution_time_predictor/issues"
 
 [project.scripts]
 llm-execution-time-predictor = "llm_execution_time_predictor.llm_forward_predictor_cli:main"
