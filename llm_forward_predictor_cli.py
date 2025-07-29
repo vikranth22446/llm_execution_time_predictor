@@ -11,8 +11,10 @@ from batch_benchmark_runner import SimpleBenchmarkRunner
 from train_utils import build_stage_features, train_linear_predictor, preprocess_input_for_prediction
 
 
-def profile_model(model_name: str, tp_size: int = 1, pp_size: int = 1, max_batch_size: int = 64, 
-                 max_input_tokens: int = 16384, output_len: int = 32, num_runs: int = 3) -> str:
+def profile_model(
+        model_name: str, tp_size: int = 1, pp_size: int = 1, max_batch_size: int = 64, 
+        max_input_tokens: int = 16384, output_len: int = 32, num_runs: int = 3, backend: str = "sglang",
+        overwrite_cache: bool = False) -> str:
     """Profile a model and save benchmark data."""
     try:
         import multiprocessing
@@ -20,7 +22,17 @@ def profile_model(model_name: str, tp_size: int = 1, pp_size: int = 1, max_batch
     except RuntimeError:
         pass
 
-    runner = SimpleBenchmarkRunner()
+    # Import and create backend
+    from bench_backend_handler import SGLangBackend, VLLMBackend
+    
+    if backend == "sglang":
+        backend_instance = SGLangBackend()
+    elif backend == "vllm":
+        backend_instance = VLLMBackend()
+    else:
+        raise ValueError(f"Unsupported backend: {backend}. Supported backends: sglang, vllm")
+    
+    runner = SimpleBenchmarkRunner(backend_instance)
     
     results = runner.run_sweep(
         model_path=model_name,
@@ -28,8 +40,8 @@ def profile_model(model_name: str, tp_size: int = 1, pp_size: int = 1, max_batch
         max_input_tokens=max_input_tokens,
         output_len=output_len,
         server_args={"load_format": "dummy", "tp_size": tp_size, "pp_size": pp_size},
-        use_cache=True,
-        skip_cache=False,
+        use_cache=not overwrite_cache,
+        skip_cache=overwrite_cache,
         cache_tag="v1",
         num_runs=num_runs,
     )
@@ -42,7 +54,7 @@ def profile_model(model_name: str, tp_size: int = 1, pp_size: int = 1, max_batch
         gpu_info = _get_gpu_info()
         gpu_model = gpu_info.get('gpu_model', 'unknown')
     
-    out_name = f"benchmark_data_{model_name.replace('/','_')}_TP_{tp_size}_PP_{pp_size}_{gpu_model}.json"
+    out_name = f"benchmark_data_{model_name.replace('/','_')}_TP_{tp_size}_PP_{pp_size}_{gpu_model}_{backend}.json"
     with open(out_name, "w") as f:
         json.dump(results, f, indent=2)
     
@@ -234,6 +246,8 @@ def main():
     profile_parser.add_argument('--max_input_tokens', type=int, default=16384, help='Maximum input tokens to test')
     profile_parser.add_argument('--output_len', type=int, default=32, help='Output length for decode phase')
     profile_parser.add_argument('--num_runs', type=int, default=3, help='Number of runs per configuration')
+    profile_parser.add_argument('--backend', default='sglang', choices=['sglang', 'vllm'], help='Backend to use for profiling (default: sglang)')
+    profile_parser.add_argument('--overwrite-cache', action='store_true', help='Force overwrite of existing cache data.')
     
     # Train models command
     train_parser = subparsers.add_parser('train_models', help='Train regression models from benchmark data')
@@ -273,7 +287,9 @@ def main():
             args.max_batch_size,
             args.max_input_tokens,
             args.output_len,
-            args.num_runs
+            args.num_runs,
+            args.backend,
+            args.overwrite_cache
         )
     elif args.command == 'train_models':
         train_models(args.config_name, args.benchmark_file, args.predictor_file)

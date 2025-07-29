@@ -229,9 +229,9 @@ def display_config(config, config_name):
     
     if config_name not in config:
         return f"Error: Config '{config_name}' not found"
-    
-    output = f"## Trained Predictor Configuration: {config_name}\n\n"
-    
+    model_path = config[config_name].get("model_path", "N/A")
+    output = f"## Trained Predictor Configuration: {config_name}: {model_path}\n\n"
+
     config_data = config[config_name]
     
     # Display benchmark metadata if available
