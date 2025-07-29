@@ -3,7 +3,7 @@
 A tool for profiling and predicting LLM batch inference latency.
 """
 
-__version__ = "0.0.1"
+__version__ = "0.1.1"
 __author__ = "Vikranth Srivatsa"
 __email__ = "vsrivatsa@users.noreply.github.com"
 
