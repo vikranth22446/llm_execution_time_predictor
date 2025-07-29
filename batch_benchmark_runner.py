@@ -31,6 +31,44 @@ def _hash_key(obj: Any) -> str:
     s = json.dumps(obj, sort_keys=True, default=str)
     return hashlib.md5(s.encode()).hexdigest()
 
+def _extract_gpu_model(gpu_name: str) -> str:
+    """Extract the core GPU model name from full GPU string."""
+    gpu_name = gpu_name.upper()
+    
+    # Common GPU model patterns
+    gpu_patterns = [
+        r'A100',
+        r'V100',
+        r'H100',
+        r'RTX\s*(\d+)',
+        r'GTX\s*(\d+)',
+        r'TESLA\s*([A-Z]\d+)',
+        r'QUADRO\s*([A-Z]\d+)',
+        r'T4',
+        r'P100',
+        r'K80',
+        r'L4'
+    ]
+    
+    import re
+    for pattern in gpu_patterns:
+        match = re.search(pattern, gpu_name)
+        if match:
+            if match.groups():
+                # For patterns with groups (like RTX 4090)
+                return match.group(0).replace(' ', '')
+            else:
+                # For simple patterns (like A100)
+                return match.group(0)
+    
+    # Fallback: try to extract any alphanumeric sequence after NVIDIA
+    nvidia_match = re.search(r'NVIDIA\s+([A-Z0-9\-]+)', gpu_name)
+    if nvidia_match:
+        return nvidia_match.group(1)
+    
+    # Last fallback: return cleaned original name
+    return ''.join(c for c in gpu_name if c.isalnum())[:10]
+
 def _get_gpu_info() -> Dict[str, Any]:
     """Get GPU information including type and count."""
     try:
@@ -47,8 +85,13 @@ def _get_gpu_info() -> Dict[str, Any]:
             # Get unique GPU types and their counts
             from collections import Counter
             gpu_counts = Counter(gpu_names)
+            
+            # Extract clean model name for the primary GPU
+            clean_gpu_name = _extract_gpu_model(gpu_names[0])
+            
             return {
-                "gpu_type": gpu_names[0],  # Primary GPU type
+                "gpu_type": gpu_names[0],  # Full GPU name for metadata
+                "gpu_model": clean_gpu_name,  # Clean model name for filename
                 "gpu_count": len(gpu_names),
                 "gpu_distribution": dict(gpu_counts)
             }
@@ -57,6 +100,7 @@ def _get_gpu_info() -> Dict[str, Any]:
     
     return {
         "gpu_type": "unknown",
+        "gpu_model": "unknown",
         "gpu_count": 0,
         "gpu_distribution": {}
     }
@@ -251,6 +295,7 @@ class SimpleBenchmarkRunner:
                 "failed_configs": failed_configs,
                 "successful_configs": len(results),
                 "gpu_type": gpu_info["gpu_type"],
+                "gpu_model": gpu_info["gpu_model"],
                 "gpu_count": gpu_info["gpu_count"],
                 "gpu_distribution": gpu_info["gpu_distribution"],
             },
@@ -474,7 +519,11 @@ def profile():
         )
         print(f"\n[done] {len(results.get('results', []))} successful configs")
         print(f"[failed] {len(results.get('metadata', {}).get('failed_configs', []))} failed configs")
-        out_name = f"benchmark_data_{model.replace('/','_')}_TP_{tp}_PP_{pp}.json"
+        
+        # Get GPU model name for filename
+        gpu_model = results.get('metadata', {}).get('gpu_model', 'unknown')
+        
+        out_name = f"benchmark_data_{model.replace('/','_')}_TP_{tp}_PP_{pp}_{gpu_model}.json"
         with open(out_name, "w") as f:
             json.dump(results, f, indent=2)
         print(f"[save] {out_name}")

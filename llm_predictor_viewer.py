@@ -5,35 +5,28 @@ import plotly.graph_objects as go
 import plotly.subplots as sp
 from train_utils import preprocess_input_for_prediction
 
-def load_predictor_config(config_path="trained_predictors.json", benchmark_path="benchmark_data_Qwen_Qwen3-4B_TP_1_PP_1.json"):
-    """Load the trained predictor configuration and benchmark metadata from JSON files."""
+def load_predictor_config(config_path="trained_predictors.json"):
+    """Load the trained predictor configuration from JSON file."""
     try:
         with open(config_path, 'r') as f:
             config = json.load(f)
-        
-        # Try to load benchmark metadata
-        try:
-            with open(benchmark_path, 'r') as f:
-                benchmark_data = json.load(f)
-                config["metadata"] = benchmark_data.get("metadata", {})
-        except (FileNotFoundError, json.JSONDecodeError):
-            # If benchmark file is not found, continue without metadata
-            config["metadata"] = {}
-            
         return config
     except FileNotFoundError:
         return {"error": "Config file not found"}
     except json.JSONDecodeError:
         return {"error": "Invalid JSON format"}
 
-def predict_latency(batch_size, input_len, config, stage="prefill"):
+def predict_latency(batch_size, input_len, config, config_name, stage="prefill"):
     """Predict latency using the linear regression model."""
     if "error" in config:
         return f"Error: {config['error']}"
     
     try:
-        # Get model parameters
-        model_config = config["test_config"][stage]
+        # Get model parameters from the selected config
+        if config_name not in config:
+            return f"Error: Config '{config_name}' not found"
+        
+        model_config = config[config_name][stage]
         weights = np.array(model_config["weights"])
         bias = model_config["bias"]
         
@@ -45,11 +38,17 @@ def predict_latency(batch_size, input_len, config, stage="prefill"):
         prediction = np.dot(weights, features_array) + bias
         prediction_ms = prediction * 1000
         
-        return f"{prediction:.6f} seconds ({prediction_ms:.3f} ms)"
+        # Calculate tokens/sec based on stage
+        if stage == "prefill":
+            tokens_per_sec = (batch_size * input_len) / prediction if prediction > 0 else 0
+        else:  # decode
+            tokens_per_sec = batch_size / prediction if prediction > 0 else 0
+        
+        return f"{prediction:.6f} seconds ({prediction_ms:.3f} ms) ({tokens_per_sec:.1f} tokens/sec)"
     except Exception as e:
         return f"Error in prediction: {str(e)}"
 
-def create_latency_plot(config, max_batch_size=64, max_input_len=32768, unit_mode="seconds"):
+def create_latency_plot(config, config_name, max_batch_size=64, max_input_len=32768, unit_mode="seconds"):
     """Create interactive visualization plots for prefill and decode latency using Plotly."""
     # Determine unit conversion and labels
     unit_multiplier = 1000 if unit_mode == "milliseconds" else 1
@@ -82,6 +81,33 @@ def create_latency_plot(config, max_batch_size=64, max_input_len=32768, unit_mod
         fig.update_layout(height=500, showlegend=False)
         return fig
     
+    if config_name not in config:
+        # Create error plot for missing config
+        fig = sp.make_subplots(
+            rows=1, cols=2,
+            subplot_titles=("Prefill Latency", "Decode Latency"),
+            horizontal_spacing=0.15
+        )
+        
+        # Add error text annotations
+        fig.add_annotation(
+            text=f"Error: Config '{config_name}' not found",
+            xref="x", yref="y",
+            x=0.5, y=0.5,
+            showarrow=False,
+            row=1, col=1
+        )
+        fig.add_annotation(
+            text=f"Error: Config '{config_name}' not found",
+            xref="x2", yref="y2",
+            x=0.5, y=0.5,
+            showarrow=False,
+            row=1, col=2
+        )
+        
+        fig.update_layout(height=500, showlegend=False)
+        return fig
+    
     # Create batch size range
     batch_sizes = [bs for bs in [1, 2, 4, 8, 16, 32, 64] if bs <= max_batch_size]
     input_lens = [il for il in [256, 512, 1024, 2048, 4096, 8192, 16384, 32768] if il <= max_input_len]
@@ -103,18 +129,19 @@ def create_latency_plot(config, max_batch_size=64, max_input_len=32768, unit_mod
         
         for bs in batch_sizes:
             features = preprocess_input_for_prediction(bs, input_len, "gpu", "prefill")
-            weights = np.array(config["test_config"]["prefill"]["weights"])
-            bias = config["test_config"]["prefill"]["bias"]
+            weights = np.array(config[config_name]["prefill"]["weights"])
+            bias = config[config_name]["prefill"]["bias"]
             latency = np.dot(weights, features) + bias
             latency_display = latency * unit_multiplier
             prefill_latencies.append(latency_display)
             
             # Create detailed hover text
             latency_ms = latency * 1000
+            tokens_per_sec = (bs * input_len) / latency if latency > 0 else 0
             hover_texts.append(
                 f"Batch Size: {bs}<br>"
                 f"Input Length: {input_len}<br>"
-                f"Prefill Latency: {latency:.6f}s ({latency_ms:.3f}ms)<br>"
+                f"Prefill Latency: {latency:.6f}s ({latency_ms:.3f}ms) ({tokens_per_sec:.1f} tokens/sec)<br>"
                 f"Features: {features}"
             )
         
@@ -140,18 +167,19 @@ def create_latency_plot(config, max_batch_size=64, max_input_len=32768, unit_mod
         
         for bs in batch_sizes:
             features = preprocess_input_for_prediction(bs, input_len, "gpu", "decode")
-            weights = np.array(config["test_config"]["decode"]["weights"])
-            bias = config["test_config"]["decode"]["bias"]
+            weights = np.array(config[config_name]["decode"]["weights"])
+            bias = config[config_name]["decode"]["bias"]
             latency = np.dot(weights, features) + bias
             latency_display = latency * unit_multiplier
             decode_latencies.append(latency_display)
             
             # Create detailed hover text
             latency_ms = latency * 1000
+            tokens_per_sec = bs / latency if latency > 0 else 0
             hover_texts.append(
                 f"Batch Size: {bs}<br>"
                 f"Input Length: {input_len}<br>"
-                f"Decode Latency: {latency:.6f}s ({latency_ms:.3f}ms)<br>"
+                f"Decode Latency: {latency:.6f}s ({latency_ms:.3f}ms) ({tokens_per_sec:.1f} tokens/sec)<br>"
                 f"Features: {features}"
             )
         
@@ -194,22 +222,26 @@ def create_latency_plot(config, max_batch_size=64, max_input_len=32768, unit_mod
     
     return fig
 
-def display_config(config):
+def display_config(config, config_name):
     """Format and display the configuration in a readable way."""
     if "error" in config:
         return f"Error loading config: {config['error']}"
     
-    output = "## Trained Predictor Configuration\n\n"
+    if config_name not in config:
+        return f"Error: Config '{config_name}' not found"
+    
+    output = f"## Trained Predictor Configuration: {config_name}\n\n"
+    
+    config_data = config[config_name]
     
     # Display benchmark metadata if available
-    metadata = config.get("metadata", {})
+    metadata = config_data.get("metadata", {})
     if metadata:
         output += "### Benchmark Metadata\n\n"
         output += f"- **Benchmark Type**: {metadata.get('benchmark_type', 'N/A')}\n"
         output += f"- **Model Path**: {metadata.get('model_path', 'N/A')}\n"
         output += f"- **Max Batch Size**: {metadata.get('max_batch_size', 'N/A')}\n"
         output += f"- **Max Input Tokens**: {metadata.get('max_input_tokens', 'N/A')}\n"
-        output += f"- **Output Length**: {metadata.get('output_len', 'N/A')}\n"
         output += f"- **Tensor Parallelism Size**: {metadata.get('tp_size', 'N/A')}\n"
         output += f"- **Pipeline Parallelism Size**: {metadata.get('pp_size', 'N/A')}\n"
         output += f"- **GPU Type**: {metadata.get('gpu_type', 'N/A')}\n"
@@ -226,28 +258,27 @@ def display_config(config):
         
         output += "\n"
     
-    # Display model configurations
-    for config_name, config_data in config.items():
-        if config_name == "metadata":
-            continue  # Skip metadata as we already displayed it
-            
-        output += f"### {config_name}\n\n"
-        
-        # Prefill model
-        prefill = config_data.get("prefill", {})
-        output += "**Prefill Model:**\n"
-        output += f"- Model Type: {prefill.get('model_type', 'N/A')}\n"
-        output += f"- Bias: {prefill.get('bias', 'N/A'):.8f}\n"
-        output += f"- Weights: {prefill.get('weights', [])}\n\n"
-        
-        # Decode model
-        decode = config_data.get("decode", {})
-        output += "**Decode Model:**\n"
-        output += f"- Model Type: {decode.get('model_type', 'N/A')}\n"
-        output += f"- Bias: {decode.get('bias', 'N/A'):.8f}\n"
-        output += f"- Weights: {decode.get('weights', [])}\n\n"
+    # Prefill model
+    prefill = config_data.get("prefill", {})
+    output += "**Prefill Model Prediction Acc:**\n"
+    if 'mse' in prefill:
+        output += f"- MSE: {prefill['mse']:.8f}\n"
+    output += "\n"
+    
+    # Decode model
+    decode = config_data.get("decode", {})
+    output += "**Decode Model Prediction Acc:**\n"
+    if 'mse' in decode:
+        output += f"- MSE: {decode['mse']:.8f}\n"
+    output += "\n"
     
     return output
+
+def get_available_configs(config):
+    """Get list of available config names."""
+    if "error" in config:
+        return []
+    return [name for name in config.keys() if name != "metadata"]
 
 # Load the configuration
 config = load_predictor_config()
@@ -257,16 +288,44 @@ with gr.Blocks(title="LLM Latency Predictor Viewer") as demo:
     gr.Markdown("# LLM Latency Predictor Viewer")
     gr.Markdown("Visualize trained linear regression models for prefill and decode latency prediction")
     
-    # Configuration section
-    gr.Markdown("## Predictor Configuration")
-    config_display = gr.Markdown(display_config(config))
-    
+    # Configuration selection section
+    gr.Markdown("## Configuration Selection")
     with gr.Row():
-        refresh_btn = gr.Button("Refresh Config")
-        refresh_btn.click(
-            fn=lambda: display_config(load_predictor_config()),
-            outputs=config_display
+        config_dropdown = gr.Dropdown(
+            label="Select Configuration",
+            choices=get_available_configs(config),
+            value=get_available_configs(config)[0] if get_available_configs(config) else None,
+            interactive=True
         )
+        refresh_btn = gr.Button("Refresh Config")
+    
+    # Configuration display section
+    gr.Markdown("## Predictor Configuration")
+    config_display = gr.Markdown(
+        display_config(config, config_dropdown.value) if config_dropdown.value else "No configuration selected"
+    )
+    
+    def refresh_config():
+        new_config = load_predictor_config()
+        available_configs = get_available_configs(new_config)
+        first_config = available_configs[0] if available_configs else None
+        config_info = display_config(new_config, first_config) if first_config else "No configuration found"
+        return gr.Dropdown(choices=available_configs, value=first_config), config_info
+    
+    def update_config_display(selected_config):
+        current_config = load_predictor_config()
+        return display_config(current_config, selected_config) if selected_config else "No configuration selected"
+    
+    refresh_btn.click(
+        fn=refresh_config,
+        outputs=[config_dropdown, config_display]
+    )
+    
+    config_dropdown.change(
+        fn=update_config_display,
+        inputs=config_dropdown,
+        outputs=config_display
+    )
     
     # Prediction section
     gr.Markdown("## Latency Prediction")
@@ -294,15 +353,17 @@ with gr.Blocks(title="LLM Latency Predictor Viewer") as demo:
         prefill_output = gr.Textbox(label="Prefill Latency (seconds & ms)", interactive=False)
         decode_output = gr.Textbox(label="Decode Latency (seconds & ms)", interactive=False)
     
-    def predict_both(batch_size, input_len):
+    def predict_both(batch_size, input_len, selected_config):
+        if not selected_config:
+            return "No configuration selected", "No configuration selected"
         current_config = load_predictor_config()
-        prefill_pred = predict_latency(batch_size, input_len, current_config, "prefill")
-        decode_pred = predict_latency(batch_size, input_len, current_config, "decode")
+        prefill_pred = predict_latency(batch_size, input_len, current_config, selected_config, "prefill")
+        decode_pred = predict_latency(batch_size, input_len, current_config, selected_config, "decode")
         return prefill_pred, decode_pred
     
     predict_btn.click(
         fn=predict_both,
-        inputs=[batch_size_input, input_len_input],
+        inputs=[batch_size_input, input_len_input, config_dropdown],
         outputs=[prefill_output, decode_output]
     )
     
@@ -333,19 +394,25 @@ with gr.Blocks(title="LLM Latency Predictor Viewer") as demo:
     plot_btn = gr.Button("Generate Plots", variant="primary")
     latency_plot = gr.Plot()
     
-    def update_plot(max_bs, max_il, unit_mode):
+    def update_plot(max_bs, max_il, unit_mode, selected_config):
+        if not selected_config:
+            return create_latency_plot({"error": "No configuration selected"}, "", max_bs, max_il, unit_mode)
         current_config = load_predictor_config()
-        return create_latency_plot(current_config, max_bs, max_il, unit_mode)
+        return create_latency_plot(current_config, selected_config, max_bs, max_il, unit_mode)
     
     plot_btn.click(
         fn=update_plot,
-        inputs=[max_batch_size_input, max_input_len_input, unit_mode_input],
+        inputs=[max_batch_size_input, max_input_len_input, unit_mode_input, config_dropdown],
         outputs=latency_plot
     )
     
     # Auto-generate initial plot
+    def initial_plot():
+        initial_config = get_available_configs(config)[0] if get_available_configs(config) else ""
+        return create_latency_plot(config, initial_config, 64, 32768, "seconds")
+    
     demo.load(
-        fn=lambda: create_latency_plot(config, 64, 32768, "seconds"),
+        fn=initial_plot,
         outputs=latency_plot
     )
 

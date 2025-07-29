@@ -34,7 +34,15 @@ def profile_model(model_name: str, tp_size: int = 1, pp_size: int = 1, max_batch
         num_runs=num_runs,
     )
     
-    out_name = f"benchmark_data_{model_name.replace('/','_')}_TP_{tp_size}_PP_{pp_size}.json"
+    # Get GPU model name for filename
+    gpu_model = results.get('metadata', {}).get('gpu_model')
+    if gpu_model is None:
+        # Fallback: detect current GPU if not in metadata
+        from batch_benchmark_runner import _get_gpu_info
+        gpu_info = _get_gpu_info()
+        gpu_model = gpu_info.get('gpu_model', 'unknown')
+    
+    out_name = f"benchmark_data_{model_name.replace('/','_')}_TP_{tp_size}_PP_{pp_size}_{gpu_model}.json"
     with open(out_name, "w") as f:
         json.dump(results, f, indent=2)
     
@@ -55,6 +63,7 @@ def train_models(config_name: str, benchmark_file: str, predictor_file: str = "t
         data = json.load(f)
     
     results = data.get('results', [])
+    metadata = data.get('metadata', {})
     if not results:
         print("Error: No benchmark results found in benchmark file")
         sys.exit(1)
@@ -70,6 +79,9 @@ def train_models(config_name: str, benchmark_file: str, predictor_file: str = "t
     
     if config_name not in predictors:
         predictors[config_name] = {}
+    
+    # Add metadata to the config
+    predictors[config_name]["metadata"] = metadata
     
     print(f"Training models for config: {config_name}")
     print(f"Training data: {len(df)} benchmark results")
@@ -87,11 +99,18 @@ def train_models(config_name: str, benchmark_file: str, predictor_file: str = "t
         # Train linear model
         model = train_linear_predictor(stage_df, f"{config_name}_{stage}")
         
-        # Store model parameters
+        # Calculate MSE for the model
+        X_train = stage_df[['num_new_tokens', 'prod_ext_ctx', 'num_context_tokens', 'batch_size']].to_numpy(dtype=np.float32)
+        y_train = stage_df['time'].to_numpy(dtype=np.float32)
+        y_pred = model.predict(X_train)
+        mse = np.mean((y_train - y_pred) ** 2)
+        
+        # Store model parameters including MSE
         predictors[config_name][stage] = {
             "weights": model.coef_.tolist(),
             "bias": float(model.intercept_),
-            "model_type": "linear"
+            "model_type": "linear",
+            "mse": float(mse)
         }
     
     # Save trained predictors

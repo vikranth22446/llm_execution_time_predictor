@@ -5,13 +5,15 @@ By using the batch size and input, the prefill/decode execution times are very p
 
 This can be plugged into a simulator for faster experiments.
 
+
 A more complicated version is done by https://github.com/microsoft/vidur but it trains every component of the model forwarding. This utility instead just profiles the full model forwarding as a unit to simplify research.
 
-The tool https://modal.com/llm-almanac/advisor is nice but it doesn't let you train a local version and specify an exact input.
+The tool https://modal.com/llm-almanac/advisor is nice visualizer but it doesn't let you train a local version and specify an exact bs/input
 
-This project is built on SGLang but will need to be exetended. 
 ## Install
-Just install latest sglang. It uses the batch one batch as a proxy
+```
+pip3 install -r requirements.txt
+```
 
 ## Using Prefill/Decode execution time for predictors
 A very small set of features are used to train the predictor.
@@ -68,16 +70,8 @@ Feature order: `[num_new_tokens, prod_ext_ctx, num_context_tokens, batch_size]`
 ## Quickstart workflow
 
 ```bash
-# Train models from benchmark data
-python llm_forward_predictor_cli.py train_models test_config benchmark_data_Qwen_Qwen3-4B_TP_1_PP_1.json --predictor-file my_predictors.json
-
-# Make predictions using the trained models
-python llm_forward_predictor_cli.py predict my_predictors.json test_config --mode prefill --bs 4 --input-len 512
-python llm_forward_predictor_cli.py predict my_predictors.json test_config --mode decode --bs 8 --input-len 1024
-
-# View and interact with trained models (CLI)
-python llm_forward_predictor_cli.py view --predictor-file my_predictors.json
-
-# Or launch web-based interactive viewer with plots and visualizations
-python llm_forward_predictor_cli.py webview --predictor-file my_predictors.json
+python llm_forward_predictor_cli.py profile Qwen/Qwen3-4B --tp_size 1
+python llm_forward_predictor_cli.py train_models tp1_config benchmark_data_Qwen_Qwen3-4B_TP_1_PP_1.json --predictor-file trained_predictors.json
+python llm_forward_predictor_cli.py predict trained_predictors.json tp1_config --mode decode --bs 8 --input-len 1024
+python llm_forward_predictor_cli.py webview --predictor-file trained_predictors.json
 ```
