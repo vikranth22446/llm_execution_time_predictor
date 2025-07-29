@@ -1,4 +1,4 @@
-# LLM profiler
+# LLM Prefill/Decode execution time predictor
 
 A small utility to help train a regression model given to predict prefill/decode times. 
 By using the batch size and input, the prefill/decode execution times are very predictable.
