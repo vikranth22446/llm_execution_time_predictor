@@ -5,6 +5,8 @@ import os
 import signal
 import time
 import multiprocessing
+import torch
+import gc
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .bench_backend_handler import Backend, SGLangBackend, VLLMBackend
@@ -59,6 +61,8 @@ class SimpleBenchmarkRunner:
         cached_results: Optional[List[Dict[str, Any]]] = None,
         cached_failed_configs: Optional[List[Dict[str, Any]]] = None,
         completed_configs: Optional[set] = None,
+        cache_key: Optional[str] = None,
+        use_cache: bool = True,
     ) -> Dict[str, Any]:
         server_args = dict(server_args or {})
         server_args["cuda_graph_max_bs"] = max_batch_size
@@ -104,7 +108,13 @@ class SimpleBenchmarkRunner:
                         run_results.append(ret)
                     except RuntimeError as e:
                         msg = str(e).lower()
-                        failed_reason = "oom" if "out of memory" in msg else f"runtime_error: {e}"
+                        if "out of memory" in msg:
+                            failed_reason = "oom"
+                            # Clear GPU memory after OOM
+                            torch.cuda.empty_cache()
+                            gc.collect()
+                        else:
+                            failed_reason = f"runtime_error: {e}"
                         break
                     except Exception as e:
                         failed_reason = f"exception: {e}"
@@ -124,6 +134,33 @@ class SimpleBenchmarkRunner:
                         "batch_size": bs, "input_len": il, "output_len": output_len,
                         "reason": failed_reason or "unknown"
                     })
+
+                # Save cache incrementally after each configuration (only on rank 0)
+                if use_cache and cache_key and tp_rank == 0:
+                    gpu_info = get_gpu_info()
+                    current_result = {
+                        "metadata": {
+                            "benchmark_type": "comprehensive_sweep",
+                            "model_path": model_path,
+                            "backend": self.backend.name,
+                            "max_batch_size": max_batch_size,
+                            "max_input_tokens": max_input_tokens,
+                            "output_len": output_len,
+                            "tp_size": int(server_args.get("tp_size", 1)),
+                            "pp_size": int(server_args.get("pp_size", 1)) if "pp_size" in server_args else 1,
+                            "batch_sizes_tested": batch_sizes,
+                            "input_lens_tested": input_lens,
+                            "num_runs": num_runs,
+                            "failed_configs": failed_configs,
+                            "successful_configs": len(results),
+                            "gpu_type": gpu_info["gpu_type"],
+                            "gpu_model": gpu_info["gpu_model"],
+                            "gpu_count": gpu_info["gpu_count"],
+                            "gpu_distribution": gpu_info["gpu_distribution"],
+                        },
+                        "results": results,
+                    }
+                    self.save_cache(cache_key, current_result)
 
         gpu_info = get_gpu_info()
         return {
@@ -180,6 +217,8 @@ class SimpleBenchmarkRunner:
                 cached_results=[],
                 cached_failed_configs=[],
                 completed_configs=set(),
+                cache_key=None,  # Only rank 0 should save cache
+                use_cache=False,  # Worker processes don't need to save cache
             )
         finally:
             self.backend.destroy()
@@ -249,6 +288,8 @@ class SimpleBenchmarkRunner:
                 cached_results=cached_results,
                 cached_failed_configs=cached_failed_configs,
                 completed_configs=completed_configs,
+                cache_key=cache_key,
+                use_cache=use_cache,
             )
             if use_cache:
                 self.save_cache(cache_key, out)
@@ -300,6 +341,8 @@ class SimpleBenchmarkRunner:
                 cached_results=cached_results,
                 cached_failed_configs=cached_failed_configs,
                 completed_configs=completed_configs,
+                cache_key=cache_key,
+                use_cache=use_cache,
             )
         finally:
             self.backend.destroy()

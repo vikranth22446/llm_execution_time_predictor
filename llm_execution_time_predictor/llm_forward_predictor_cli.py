@@ -7,6 +7,8 @@ import sys
 import pandas as pd
 import numpy as np
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 from llm_execution_time_predictor.batch_benchmark_runner import SimpleBenchmarkRunner
 from llm_execution_time_predictor.train_utils import build_stage_features, train_linear_predictor, preprocess_input_for_prediction
 
@@ -88,7 +90,7 @@ def train_models(config_name: str, benchmark_file: str, predictor_file: str = "t
             predictors = json.load(f)
     else:
         predictors = {}
-    
+
     if config_name not in predictors:
         predictors[config_name] = {}
     
@@ -245,7 +247,7 @@ def main():
     profile_parser.add_argument('--max_batch_size', type=int, default=64, help='Maximum batch size to test')
     profile_parser.add_argument('--max_input_tokens', type=int, default=16384, help='Maximum input tokens to test')
     profile_parser.add_argument('--output_len', type=int, default=32, help='Output length for decode phase')
-    profile_parser.add_argument('--num_runs', type=int, default=3, help='Number of runs per configuration')
+    profile_parser.add_argument('--num_runs', type=int, default=1, help='Number of runs per configuration')
     profile_parser.add_argument('--backend', default='sglang', choices=['sglang', 'vllm'], help='Backend to use for profiling (default: sglang)')
     profile_parser.add_argument('--overwrite-cache', action='store_true', help='Force overwrite of existing cache data.')
     

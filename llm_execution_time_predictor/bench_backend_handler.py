@@ -96,7 +96,6 @@ class SGLangBackend(Backend):
             if hasattr(server_args_obj, k):
                 setattr(server_args_obj, k, v)
         _set_envs_and_config(server_args_obj)
-
         port_args = PortArgs.init_new(server_args_obj)
         port_args.nccl_port = int(nccl_port)
         self._model_runner, self._tokenizer = load_model(server_args_obj, port_args, tp_rank)
