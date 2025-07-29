@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "llm_execution_time_predictor"
-version = "0.1.1"
+version = "0.1.2"
 description = "LLM batch inference latency predictor and profiler CLI tool"
 readme = "README.md"
 requires-python = ">=3.8"
