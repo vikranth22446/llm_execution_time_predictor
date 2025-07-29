@@ -79,6 +79,10 @@ python llm_forward_predictor_cli.py predict trained_predictors.json tp1_config -
 python llm_forward_predictor_cli.py webview --predictor-file trained_predictors.json
 ```
 
+
 # TODO
 1. Fix vLLM force one batch
 with vllm backend, currently vLLM might run more than 1 batch making some of the profiling innacurate skewing the model. Currently no good solution for this. 
+
+# Ack
+Co-contributors: [Dongming Li ](https://github.com/dongmingli-Ben) and [Zijian He](https://github.com/jiange91)
