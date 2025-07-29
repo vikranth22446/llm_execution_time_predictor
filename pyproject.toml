@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm_execution_time_predictor"
+version = "0.1.0"
+description = "LLM batch inference latency predictor and profiler CLI tool"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Vikranth Srivatsa", email = "vsrivatsa@users.noreply.github.com"}
+]
+keywords = ["llm", "inference", "latency", "prediction", "profiling", "machine-learning"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "sglang",
+    "fire",
+    "gradio",
+    "numpy",
+    "matplotlib",
+    "scikit-learn",
+    "pandas",
+    "plotly",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "black",
+    "flake8",
+    "mypy",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/llm_execution_time_predictor"
+Repository = "https://github.com/yourusername/llm_execution_time_predictor"
+Documentation = "https://github.com/yourusername/llm_execution_time_predictor#readme"
+"Bug Tracker" = "https://github.com/yourusername/llm_execution_time_predictor/issues"
+
+[project.scripts]
+llm-execution-time-predictor = "llm_execution_time_predictor.llm_forward_predictor_cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["llm_execution_time_predictor*"]
+
+[tool.setuptools.package-data]
+llm_execution_time_predictor = ["*.json"]

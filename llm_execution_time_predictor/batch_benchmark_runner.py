@@ -7,16 +7,14 @@ import time
 import multiprocessing
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from bench_backend_handler import Backend, SGLangBackend, VLLMBackend
-from bench_utils import powers_of_two, hash_key, get_gpu_info, average_results
+from .bench_backend_handler import Backend, SGLangBackend, VLLMBackend
+from .bench_utils import powers_of_two, hash_key, get_gpu_info, average_results
 
 class SimpleBenchmarkRunner:
     def __init__(self, backend: Backend, cache_dir: str = "./benchmark_cache"):
         self.backend = backend
         self.cache_dir = cache_dir
         os.makedirs(cache_dir, exist_ok=True)
-
-    # ---- cache ----
 
     def _cache_path(self, key: str) -> str:
         return os.path.join(self.cache_dir, f"{key}.json")
@@ -38,8 +36,6 @@ class SimpleBenchmarkRunner:
                 json.dump(data, f, indent=2)
         except Exception as e:
             print(f"[cache] failed to save: {e}")
-
-    # ---- sweep internals ----
 
     @staticmethod
     def _get_completed_configs(cached_data: Dict[str, Any]) -> Set[Tuple[int, int]]:
@@ -187,8 +183,6 @@ class SimpleBenchmarkRunner:
             )
         finally:
             self.backend.destroy()
-
-    # ---- public API ----
 
     def run_sweep(
         self,

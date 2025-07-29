@@ -3,7 +3,7 @@ import json
 import numpy as np
 import plotly.graph_objects as go
 import plotly.subplots as sp
-from train_utils import preprocess_input_for_prediction
+from .train_utils import preprocess_input_for_prediction
 
 def load_predictor_config(config_path="trained_predictors.json"):
     """Load the trained predictor configuration from JSON file."""

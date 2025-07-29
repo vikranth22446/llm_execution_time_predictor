@@ -4,8 +4,6 @@ import os
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple
 
-# ---- Backend interface ----
-
 class Backend(ABC):
     name: str
 
@@ -49,8 +47,6 @@ class Backend(ABC):
         pass
 
 
-# ---- SGLang backend ----
-
 class SGLangBackend(Backend):
     name = "sglang"
 
@@ -86,7 +82,7 @@ class SGLangBackend(Backend):
         tp_rank: int,
         nccl_port: int,
     ) -> None:
-        from sglang_batch_latency import load_model, _set_envs_and_config
+        from .sglang_batch_latency import load_model, _set_envs_and_config
         from sglang.srt.server_args import ServerArgs, PortArgs
 
         # hash server_args for caching
@@ -108,7 +104,7 @@ class SGLangBackend(Backend):
         self._loaded_sig = sig
 
     def prepare_inputs(self, batch_size: int, input_len: int) -> Any:
-        from sglang_batch_latency import prepare_synthetic_inputs_for_latency_test
+        from .sglang_batch_latency import prepare_synthetic_inputs_for_latency_test
         return prepare_synthetic_inputs_for_latency_test(batch_size, input_len)
 
     def run_once(
@@ -119,7 +115,7 @@ class SGLangBackend(Backend):
         input_len: int,
         output_len: int,
     ) -> Optional[Dict[str, Any]]:
-        from sglang_batch_latency import latency_test_run_once
+        from .sglang_batch_latency import latency_test_run_once
 
         return latency_test_run_once(
             run_name=run_name,
@@ -142,9 +138,6 @@ class SGLangBackend(Backend):
         except Exception:
             pass
 
-
-# ---- vLLM backend ----
-
 class VLLMBackend(Backend):
     name = "vllm"
 
@@ -164,7 +157,7 @@ class VLLMBackend(Backend):
         tp_rank: int,
         nccl_port: int,
     ) -> None:
-        from vllm_batch_latency import load_vllm_model, _set_vllm_envs_and_config
+        from .vllm_batch_latency import load_vllm_model, _set_vllm_envs_and_config
 
         import json, hashlib
         sig = (model_path, hashlib.md5(json.dumps(server_args, sort_keys=True, default=str).encode()).hexdigest())
@@ -176,7 +169,7 @@ class VLLMBackend(Backend):
         self._loaded_sig = sig
 
     def prepare_inputs(self, batch_size: int, input_len: int) -> Any:
-        from vllm_batch_latency import prepare_vllm_synthetic_inputs
+        from .vllm_batch_latency import prepare_vllm_synthetic_inputs
         return prepare_vllm_synthetic_inputs(batch_size, input_len)
 
     def run_once(
@@ -187,7 +180,7 @@ class VLLMBackend(Backend):
         input_len: int,
         output_len: int,
     ) -> Optional[Dict[str, Any]]:
-        from vllm_batch_latency import vllm_latency_test_run_once
+        from .vllm_batch_latency import vllm_latency_test_run_once
 
         return vllm_latency_test_run_once(
             run_name=run_name,

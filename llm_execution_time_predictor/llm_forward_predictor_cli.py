@@ -7,8 +7,8 @@ import sys
 import pandas as pd
 import numpy as np
 
-from batch_benchmark_runner import SimpleBenchmarkRunner
-from train_utils import build_stage_features, train_linear_predictor, preprocess_input_for_prediction
+from llm_execution_time_predictor.batch_benchmark_runner import SimpleBenchmarkRunner
+from llm_execution_time_predictor.train_utils import build_stage_features, train_linear_predictor, preprocess_input_for_prediction
 
 
 def profile_model(
@@ -23,7 +23,7 @@ def profile_model(
         pass
 
     # Import and create backend
-    from bench_backend_handler import SGLangBackend, VLLMBackend
+    from llm_execution_time_predictor.bench_backend_handler import SGLangBackend, VLLMBackend
     
     if backend == "sglang":
         backend_instance = SGLangBackend()
@@ -50,8 +50,8 @@ def profile_model(
     gpu_model = results.get('metadata', {}).get('gpu_model')
     if gpu_model is None:
         # Fallback: detect current GPU if not in metadata
-        from batch_benchmark_runner import _get_gpu_info
-        gpu_info = _get_gpu_info()
+        from llm_execution_time_predictor.bench_utils import get_gpu_info
+        gpu_info = get_gpu_info()
         gpu_model = gpu_info.get('gpu_model', 'unknown')
     
     out_name = f"benchmark_data_{model_name.replace('/','_')}_TP_{tp_size}_PP_{pp_size}_{gpu_model}_{backend}.json"
@@ -220,7 +220,7 @@ def view_predictions(predictor_file: str = "trained_predictors.json") -> None:
 def launch_web_viewer(predictor_file: str = "trained_predictors.json", host: str = "0.0.0.0", port: int = 7860) -> None:
     """Launch the web-based viewer using Gradio."""
     try:
-        from llm_predictor_viewer import demo
+        from llm_execution_time_predictor.llm_predictor_viewer import demo
         print(f"Launching web viewer at http://{host}:{port}")
         print("Press Ctrl+C to stop the server")
         demo.launch(share=False, server_name=host, server_port=port)
