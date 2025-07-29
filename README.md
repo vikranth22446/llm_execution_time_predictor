@@ -67,6 +67,9 @@ The trained predictor file format:
 
 Feature order: `[num_new_tokens, prod_ext_ctx, num_context_tokens, batch_size]`
 
+## Webviewer
+![Web Viewer](webview_demo.png)
+
 ## Quickstart workflow
 
 ```bash
@@ -75,3 +78,7 @@ python llm_forward_predictor_cli.py train_models tp1_config benchmark_data_Qwen_
 python llm_forward_predictor_cli.py predict trained_predictors.json tp1_config --mode decode --bs 8 --input-len 1024
 python llm_forward_predictor_cli.py webview --predictor-file trained_predictors.json
 ```
+
+# TODO
+1. Fix vLLM force one batch
+with vllm backend, currently vLLM might run more than 1 batch making some of the profiling innacurate skewing the model. Currently no good solution for this. 
