@@ -1,5 +1,7 @@
 # LLM Execution Time Predictor
 
+[![PyPI version](https://img.shields.io/pypi/v/llm-execution-time-predictor.svg)](https://pypi.org/project/llm-execution-time-predictor/)
+
 A small utility to help train a regression model given to predict prefill/decode times. 
 By using the batch size and input, the prefill/decode execution times are very predictable.
 
