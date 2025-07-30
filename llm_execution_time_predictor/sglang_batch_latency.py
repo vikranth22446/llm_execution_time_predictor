@@ -92,6 +92,8 @@ class BenchArgs:
     profile: bool = False
     profile_filename_prefix: str = "profile"
     batch_composition: list = dataclasses.field(default_factory=list)
+    chunk_prefill: bool = False
+    chunk_size: int = 512
 
     @staticmethod
     def add_cli_args(parser: argparse.ArgumentParser):
@@ -125,6 +127,17 @@ class BenchArgs:
             default=BenchArgs.profile_filename_prefix,
             help="Prefix of the profiling file names. The full profiling result file(s) be "
             '"[profile_filename_prefix]_batch[batch_size]_input[input_len]_output[output_len].trace.json.gz"',
+        )
+        parser.add_argument(
+            "--chunk-prefill", 
+            action="store_true", 
+            help="Split prefill across multiple requests"
+        )
+        parser.add_argument(
+            "--chunk-size", 
+            type=int, 
+            default=BenchArgs.chunk_size,
+            help="Size of each prefill chunk (default: 512)"
         )
 
     @classmethod
@@ -252,24 +265,115 @@ def prepare_synthetic_inputs_for_latency_test(batch_size, input_len, input_ids_l
 
 
 @torch.no_grad
-def extend(reqs, model_runner):
-    batch = ScheduleBatch.init_new(
-        reqs=reqs,
-        req_to_token_pool=model_runner.req_to_token_pool,
-        token_to_kv_pool_allocator=model_runner.token_to_kv_pool_allocator,
-        tree_cache=None,
-        model_config=model_runner.model_config,
-        enable_overlap=False,
-        spec_algorithm=SpeculativeAlgorithm.NONE,
-        enable_custom_logit_processor=False,
-    )
-    batch.prepare_for_extend()
-    _maybe_prepare_mlp_sync_batch(batch, model_runner)
-    model_worker_batch = batch.get_model_worker_batch()
-    forward_batch = ForwardBatch.init_new(model_worker_batch, model_runner)
-    logits_output, _ = model_runner.forward(forward_batch)
-    next_token_ids = model_runner.sample(logits_output, forward_batch)
-    return next_token_ids, logits_output.next_token_logits, batch
+def extend(reqs, model_runner, chunk_prefill=False, chunk_size=512):
+    if not chunk_prefill:
+        # Original single-request prefill behavior
+        batch = ScheduleBatch.init_new(
+            reqs=reqs,
+            req_to_token_pool=model_runner.req_to_token_pool,
+            token_to_kv_pool_allocator=model_runner.token_to_kv_pool_allocator,
+            tree_cache=None,
+            model_config=model_runner.model_config,
+            enable_overlap=False,
+            spec_algorithm=SpeculativeAlgorithm.NONE,
+            enable_custom_logit_processor=False,
+        )
+        batch.prepare_for_extend()
+        _maybe_prepare_mlp_sync_batch(batch, model_runner)
+        model_worker_batch = batch.get_model_worker_batch()
+        forward_batch = ForwardBatch.init_new(model_worker_batch, model_runner)
+        logits_output, _ = model_runner.forward(forward_batch)
+        next_token_ids = model_runner.sample(logits_output, forward_batch)
+        return next_token_ids, logits_output.next_token_logits, batch, 1  # 1 prefill iteration
+    else:
+        # Chunked prefill behavior
+        return extend_chunked(reqs, model_runner, chunk_size)
+
+
+@torch.no_grad
+def extend_chunked(reqs, model_runner, chunk_size):
+    """Split prefill across multiple chunks."""
+    chunked_reqs = []
+    for req in reqs:
+        chunked_req = Req(
+            rid=req.rid,
+            origin_input_text=req.origin_input_text,
+            origin_input_ids=req.origin_input_ids.copy(),
+            sampling_params=req.sampling_params,
+        )
+        chunked_req.prefix_indices = req.prefix_indices.copy() if hasattr(req, 'prefix_indices') and req.prefix_indices else []
+        chunked_req.fill_ids = req.fill_ids.copy() if hasattr(req, 'fill_ids') and req.fill_ids else req.origin_input_ids.copy()
+        chunked_req.extend_input_len = req.extend_input_len if hasattr(req, 'extend_input_len') else len(chunked_req.fill_ids)
+        chunked_req.logprob_start_len = req.logprob_start_len if hasattr(req, 'logprob_start_len') else len(req.origin_input_ids) - 1
+        chunked_reqs.append(chunked_req)
+    
+    # Process requests in chunks
+    batch = None
+    next_token_logits = None
+    total_prefill_iterations = 0
+    
+    for req in chunked_reqs:
+        remaining_tokens = req.fill_ids.copy()
+        req.fill_ids = []
+        req.extend_input_len = 0
+        while remaining_tokens:
+            current_chunk = remaining_tokens[:chunk_size]
+            remaining_tokens = remaining_tokens[chunk_size:]
+            if isinstance(req.prefix_indices, torch.Tensor):
+                prefix_indices = req.prefix_indices.tolist()
+            else:
+                prefix_indices = req.prefix_indices
+            req.fill_ids = prefix_indices + current_chunk
+            req.extend_input_len = len(current_chunk)
+            chunk_batch = ScheduleBatch.init_new(
+                reqs=[req],
+                req_to_token_pool=model_runner.req_to_token_pool,
+                token_to_kv_pool_allocator=model_runner.token_to_kv_pool_allocator,
+                tree_cache=None,
+                model_config=model_runner.model_config,
+                enable_overlap=False,
+                spec_algorithm=SpeculativeAlgorithm.NONE,
+                enable_custom_logit_processor=False,
+            )
+            chunk_batch.prepare_for_extend()
+            _maybe_prepare_mlp_sync_batch(chunk_batch, model_runner)
+            model_worker_batch = chunk_batch.get_model_worker_batch()
+            forward_batch = ForwardBatch.init_new(model_worker_batch, model_runner)
+            logits_output, _ = model_runner.forward(forward_batch)
+            if hasattr(req, 'prefix_indices'):
+                req.prefix_indices = model_runner.req_to_token_pool.req_to_token[req.rid, :len(req.fill_ids)]
+            batch = chunk_batch
+            next_token_logits = logits_output.next_token_logits
+            total_prefill_iterations += 1
+
+    if batch is not None and next_token_logits is not None:
+        # Create a final batch with all requests for sampling
+        final_batch = ScheduleBatch.init_new(
+            reqs=chunked_reqs,
+            req_to_token_pool=model_runner.req_to_token_pool,
+            token_to_kv_pool_allocator=model_runner.token_to_kv_pool_allocator,
+            tree_cache=None,
+            model_config=model_runner.model_config,
+            enable_overlap=False,
+            spec_algorithm=SpeculativeAlgorithm.NONE,
+            enable_custom_logit_processor=False,
+        )
+        
+        # Set up the final batch state
+        for i, req in enumerate(chunked_reqs):
+            req.fill_ids = req.origin_input_ids.copy()
+            prefix_len = req.prefix_indices.numel() if isinstance(req.prefix_indices, torch.Tensor) else len(req.prefix_indices) if hasattr(req, "prefix_indices") else 0
+            req.extend_input_len = len(req.fill_ids) - prefix_len
+            
+        final_batch.prepare_for_extend()
+        model_worker_batch = final_batch.get_model_worker_batch()
+        forward_batch = ForwardBatch.init_new(model_worker_batch, model_runner)
+        next_token_ids = model_runner.sample(logits_output, forward_batch)
+        
+        return next_token_ids, next_token_logits, final_batch, total_prefill_iterations
+    
+    fallback_result = extend(reqs, model_runner, chunk_prefill=False)
+    return fallback_result[0], fallback_result[1], fallback_result[2], fallback_result[3]
 
 
 @torch.no_grad
@@ -319,7 +423,9 @@ def correctness_test(
 
     if bench_args.cut_len > 0:
         # Prefill
-        next_token_ids, next_token_logits, batch = extend(reqs, model_runner)
+        next_token_ids, next_token_logits, batch, prefill_iterations = extend(
+            reqs, model_runner, bench_args.chunk_prefill, bench_args.chunk_size
+        )
         rank_print(f"prefill logits (first half): {next_token_logits} \n")
 
     # Prepare extend inputs
@@ -328,7 +434,9 @@ def correctness_test(
     )
 
     # Extend (prefill w/ KV cache)
-    next_token_ids, next_token_logits, batch = extend(reqs, model_runner)
+    next_token_ids, next_token_logits, batch, prefill_iterations = extend(
+        reqs, model_runner, bench_args.chunk_prefill, bench_args.chunk_size
+    )
     rank_print(f"prefill logits (final): {next_token_logits} \n")
 
     # Decode
@@ -361,6 +469,8 @@ def latency_test_run_once(
     log_decode_step,
     profile,
     profile_filename_prefix,
+    chunk_prefill=False,
+    chunk_size=512,
 ):
     model_config = model_runner.model_config
     # Handle dtype - it might already be a torch.dtype or a string
@@ -417,16 +527,17 @@ def latency_test_run_once(
     # Prefill
     synchronize(device)
     tic = time.perf_counter()
-    next_token_ids, _, batch = extend(reqs, model_runner)
+    next_token_ids, _, batch, prefill_iterations = extend(reqs, model_runner, chunk_prefill, chunk_size)
     synchronize(device)
     prefill_latency = time.perf_counter() - tic
     tot_latency += prefill_latency
     throughput = input_len * batch_size / prefill_latency
     rank_print(
-        f"Prefill. latency: {prefill_latency:6.5f} s, throughput: {throughput:9.2f} token/s"
+        f"Prefill. latency: {prefill_latency:6.5f} s, throughput: {throughput:9.2f} token/s, iterations: {prefill_iterations}"
     )
     measurement_results["prefill_latency"] = prefill_latency
     measurement_results["prefill_throughput"] = throughput
+    measurement_results["prefill_iterations"] = prefill_iterations
 
     # Decode
     decode_latencies = []
@@ -514,6 +625,8 @@ def latency_test(
         log_decode_step=0,
         profile=False,
         profile_filename_prefix="",  # not used
+        chunk_prefill=bench_args.chunk_prefill,
+        chunk_size=bench_args.chunk_size,
     )
 
     rank_print("Benchmark ...")
@@ -536,6 +649,8 @@ def latency_test(
             bench_args.log_decode_step,
             bench_args.profile if tp_rank == 0 else None,
             bench_args.profile_filename_prefix,
+            chunk_prefill=bench_args.chunk_prefill,
+            chunk_size=bench_args.chunk_size,
         )
         if ret is not None:
             result_list.append(ret)
