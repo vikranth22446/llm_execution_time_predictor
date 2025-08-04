@@ -2,11 +2,16 @@
 import os, shlex, subprocess, threading
 
 JOBS = [
-    ("Qwen/Qwen3-4B",  [1]),
-    ("Qwen/Qwen3-8B",  [1, 2, 4, 8]),
-    ("Qwen/Qwen3-14B", [2]),
-    ("Qwen/Qwen3-32B", [2, 4]),
-    ("meta-llama/Llama-3.1-8B", [1]),
+    # ("Qwen/Qwen3-4B",  [1]),
+    # ("Qwen/Qwen3-8B",  [1, 2, 4, 8]),
+    # ("Qwen/Qwen3-14B", [2]),
+    # ("Qwen/Qwen3-32B", [2, 4]),
+    # ("meta-llama/Llama-3.1-8B", [1]),
+    ("Qwen/Qwen3-4B",  [2,4,8]),
+    # ("Qwen/Qwen3-8B",  [1, 2, 4, 8]),
+    ("Qwen/Qwen3-14B", [4,8]),
+    ("Qwen/Qwen3-32B", [8]),
+    ("meta-llama/Llama-3.1-8B", [2,4,8]),
 ]
 
 CMD = ("python3 llm_execution_time_predictor/llm_forward_predictor_cli.py "

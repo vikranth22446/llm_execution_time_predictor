@@ -29,7 +29,7 @@ class Backend(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def prepare_inputs(self, batch_size: int, input_len: int) -> Any:
+    def prepare_inputs(self, batch_size: int, input_len: int, skew: str = "none") -> Any:
         raise NotImplementedError
 
     @abstractmethod
@@ -112,9 +112,9 @@ class SGLangBackend(Backend):
         self._server_args_obj = server_args_obj
         self._loaded_sig = sig
 
-    def prepare_inputs(self, batch_size: int, input_len: int) -> Any:
+    def prepare_inputs(self, batch_size: int, input_len: int, skew: str = "none") -> Any:
         from .sglang_batch_latency import prepare_synthetic_inputs_for_latency_test
-        return prepare_synthetic_inputs_for_latency_test(batch_size, input_len)
+        return prepare_synthetic_inputs_for_latency_test(batch_size, input_len, skew=skew)
 
     def run_once(
         self,
@@ -264,9 +264,9 @@ class VLLMBackend(Backend):
         self._model_runner, self._tokenizer = load_vllm_model(model_path, server_args, tp_rank)
         self._loaded_sig = sig
 
-    def prepare_inputs(self, batch_size: int, input_len: int) -> Any:
+    def prepare_inputs(self, batch_size: int, input_len: int, skew: str = "none") -> Any:
         from .vllm_batch_latency import prepare_vllm_synthetic_inputs
-        return prepare_vllm_synthetic_inputs(batch_size, input_len)
+        return prepare_vllm_synthetic_inputs(batch_size, input_len, skew=skew)
 
     def run_once(
         self,
