@@ -348,6 +348,75 @@ def correctness_test(
 def synchronize(device):
     torch.get_device_module(device).synchronize()
 
+def profile_kv_and_activation_memory_given_model(model_config, max_batch_size, max_seq_len, tp_size=1):
+    dtype = getattr(torch, model_config.dtype) if isinstance(model_config.dtype, str) else model_config.dtype
+    dtype_size = torch.tensor([], dtype=dtype).element_size()
+
+    kv_per_token_bytes = 2 * model_config.num_hidden_layers * model_config.num_key_value_heads * model_config.head_dim * dtype_size
+    kv_cache_total_GB = max_batch_size * max_seq_len * kv_per_token_bytes / (1024 ** 3)
+
+    multiplier = 6.0
+    activation_prefill_total_GB = multiplier * max_batch_size * max_seq_len * model_config.hidden_dim * dtype_size / (1024 ** 3)
+    activation_decode_total_GB = multiplier * max_batch_size * model_config.hidden_dim * dtype_size / (1024 ** 3)
+
+    d = model_config.hidden_dim
+    L = model_config.num_hidden_layers
+    approx_total_params = 2 * d * d * L  # MHA + MLP
+    weight_total_bytes = approx_total_params * dtype_size
+    weight_total_GB = weight_total_bytes / (1024 ** 3)
+    weight_per_tp_rank_GB = weight_total_GB / tp_size
+
+    return {
+        "kv_cache_total_GB": kv_cache_total_GB,
+        "activation_prefill_total_GB": activation_prefill_total_GB,
+        "activation_decode_total_GB": activation_decode_total_GB,
+        "model_weights_total_GB": weight_total_GB,
+        "model_weights_per_rank_GB": weight_per_tp_rank_GB,
+    }
+
+def generate_skewed_distribution(total_sum, num_elements, skew_factor=0.5):
+    """
+    Generate a skewed distribution of integers that sum to total_sum.
+    
+    Args:
+        total_sum: The total sum of the distribution.
+        num_elements: The number of elements in the distribution.
+        skew_factor: A factor to control the skewness (0 = uniform, 1 = highly skewed).
+    
+    Returns:
+        A list of integers that sum to total_sum.
+    """
+    if num_elements <= 0 or total_sum <= 0:
+        return []
+
+    # Generate a uniform distribution
+    uniform_distribution = np.random.uniform(0, 1, num_elements)
+    
+    # Apply skewness
+    skewed_distribution = uniform_distribution ** (1 - skew_factor)
+    
+    # Normalize to get the desired sum
+    skewed_distribution /= np.sum(skewed_distribution)
+    skewed_distribution *= total_sum
+    
+    return np.round(skewed_distribution).astype(int).tolist()
+
+def run_prefill_profiling(model_runner, max_prefill_batch_size):
+    # Profile prefill up to the current maximum batch size
+    prefill_batch_sizes = [1,2,4,8,16,32,48, 64, 72, 84, 128,256]
+    prefill_token_lengths_to_consider = [1,2,4,8,16,32,64,128,256,512,1024,2048,4096,8192, 10240, 16384]
+    prefill_token_lengths_to_consider = list(filter(
+        lambda x: x <= max_prefill_batch_size, prefill_token_lengths_to_consider
+    ))
+    for prefill_batch_size in prefill_batch_sizes:
+        for prefill_token_length in prefill_token_lengths_to_consider:
+            # Given a specific batch size and specific prefill token length. 
+            # We can profile at different amount of skew
+            # Skew = 0 even
+            # Skew = 
+
+
+    
 
 def latency_test_run_once(
     run_name,
@@ -356,37 +425,26 @@ def latency_test_run_once(
     reqs,
     batch_size,
     input_len,
-    output_len,
     device,
     log_decode_step,
     profile,
     profile_filename_prefix,
 ):
     model_config = model_runner.model_config
-    # Handle dtype - it might already be a torch.dtype or a string
-    if isinstance(model_config.dtype, str):
-        dtype = getattr(torch, model_config.dtype)
-    else:
-        dtype = model_config.dtype
-    dtype_size = torch.tensor([], dtype=dtype).element_size()
-    kv_cache_per_token_in_bytes = (
-        2
-        * model_config.num_hidden_layers
-        * model_config.num_key_value_heads
-        * model_config.head_dim
-        * dtype_size
-    )
-    predicted_kv_usage_in_bytes = (
-        batch_size * (input_len + output_len) * kv_cache_per_token_in_bytes
+    predicted_sizes = profile_kv_and_activation_memory_given_model(
+        model_config,
+        batch_size,
+        input_len,
+        tp_size=model_runner.server_args.tp_size,
     )
     rank_print(
-        f"Predicted peak KV cache usage: {predicted_kv_usage_in_bytes / (1024**3):.3f} GB"
+        f"Predicted peak memory usage: {predicted_sizes:.3f} GB"
     )
 
-    max_batch_size = model_runner.max_total_num_tokens // (input_len + output_len)
+    max_batch_size = model_runner.max_total_num_tokens // (input_len + 1)
     if batch_size > max_batch_size:
         rank_print(
-            f"skipping ({batch_size}, {input_len}, {output_len}) due to max batch size limit"
+            f"skipping ({batch_size}, {input_len}, {1}) due to max batch size limit"
         )
         return
 
@@ -398,7 +456,7 @@ def latency_test_run_once(
         "run_name": run_name,
         "batch_size": batch_size,
         "input_len": input_len,
-        "output_len": output_len,
+        "output_len": 1,
     }
 
     tot_latency = 0
@@ -430,7 +488,7 @@ def latency_test_run_once(
 
     # Decode
     decode_latencies = []
-    for i in range(output_len - 1):
+    for i in range(1):
         synchronize(device)
         tic = time.perf_counter()
         next_token_ids, _ = decode(next_token_ids, batch, model_runner)
@@ -509,7 +567,6 @@ def latency_test(
         reqs,
         bench_args.batch_size[0],
         bench_args.input_len[0],
-        min(32, bench_args.output_len[0]),  # shorter decoding to speed up the warmup
         server_args.device,
         log_decode_step=0,
         profile=False,
@@ -531,7 +588,6 @@ def latency_test(
             reqs,
             bs,
             il,
-            ol,
             server_args.device,
             bench_args.log_decode_step,
             bench_args.profile if tp_rank == 0 else None,
@@ -587,8 +643,7 @@ def main(server_args, bench_args):
 
         for proc in workers:
             proc.join()
-
-        proc.terminate()
+            proc.terminate()
 
 
 if __name__ == "__main__":
