@@ -55,7 +55,7 @@ from typing import Tuple
 import numpy as np
 import torch
 import torch.distributed as dist
-
+from tqdm import tqdm
 from sglang.srt.configs.model_config import ModelConfig
 from sglang.srt.distributed.parallel_state import destroy_distributed_environment
 from sglang.srt.entrypoints.engine import _set_envs_and_config
@@ -128,6 +128,9 @@ class BenchArgs:
     profile: bool = False
     profile_filename_prefix: str = "profile"
     batch_composition: list = dataclasses.field(default_factory=list)
+    run_prefill_profiling: bool = False
+    run_decode_profiling: bool = False
+    max_decode_token_length: int = None
     chunk_prefill: bool = False
     chunk_size: int = 512
     skew: str = "none"
@@ -157,6 +160,15 @@ class BenchArgs:
         )
         parser.add_argument(
             "--profile", action="store_true", help="Use Torch Profiler."
+        )
+        parser.add_argument(
+            "--run-prefill-profiling", action="store_true", help="Run prefill profiling."
+        )
+        parser.add_argument(
+            "--run-decode-profiling", action="store_true", help="Run decode profiling." 
+        )
+        parser.add_argument(
+            "--max-decode-token-length", type=int, default=None, help="Maximum token length to consider for decode profiling."
         )
         parser.add_argument(
             "--profile-filename-prefix",
@@ -266,21 +278,22 @@ def prepare_extend_inputs_for_correctness_test(
     return reqs
 
 
-def prepare_synthetic_inputs_for_latency_test(batch_size, input_len, input_ids_list=None, skew="none"):
+def prepare_synthetic_inputs_for_latency_test(batch_size, input_len, input_len_list=None, skew="none"):
     """
     Prepare synthetic inputs for latency testing.
     
     Args:
         batch_size: Number of requests in the batch
-        input_len: Default input length (used when input_ids_list is None)
-        input_ids_list: Optional list of input_ids arrays for each request in the batch.
-                       If provided, batch_size must match len(input_ids_list).
+        input_len: Default input length (used when input_len_list is None)
+        input_len_list: Optional list of input lengths for each request in the batch.
+                       If provided, batch_size must match len(input_len_list).
         skew: Distribution skew for input lengths ("none", "medium", "heavy")
     """
-    if input_ids_list is not None:
-        if len(input_ids_list) != batch_size:
-            raise ValueError(f"Length of input_ids_list ({len(input_ids_list)}) must match batch_size ({batch_size})")
-        input_ids = input_ids_list
+    if input_len_list is not None:
+        input_ids = [
+                np.random.randint(0, 10000, size=(item,), dtype=np.int32)
+                for item in input_len_list
+        ]
     else:
         if skew == "none":
             # Original behavior - generate random input_ids with same length
@@ -309,7 +322,8 @@ def prepare_synthetic_inputs_for_latency_test(batch_size, input_len, input_ids_l
     reqs = []
     for i in range(batch_size):
         current_input_ids = list(input_ids[i])
-            
+        if len(current_input_ids) == 0:
+            continue
         req = Req(
             rid=i,
             origin_input_text="",
@@ -321,7 +335,6 @@ def prepare_synthetic_inputs_for_latency_test(batch_size, input_len, input_ids_l
         req.extend_input_len = len(req.fill_ids) - len(req.prefix_indices)
         req.logprob_start_len = len(req.origin_input_ids) - 1
         reqs.append(req)
-
     return reqs
 
 
@@ -497,6 +510,231 @@ def correctness_test(
 def synchronize(device):
     torch.get_device_module(device).synchronize()
 
+def generate_distribution_of_skewed_batch(total_elements, batch_size, skew):
+    if batch_size == 1:
+        return [total_elements]
+
+    if skew == 0:
+        counts = np.ones(batch_size)
+    else:
+        ranks = np.arange(1, batch_size + 1)
+        counts = 1/ranks ** skew
+
+    counts *= total_elements / np.sum(counts)     
+    counts_rounded = np.floor(counts).astype(int)  
+    remainder = total_elements - np.sum(counts_rounded) 
+    if remainder > 0:
+        # Adds the remainder to the top `remainder` elements
+        frac_parts = counts - counts_rounded
+        top_indices = np.argpartition(-frac_parts, remainder)[:remainder]
+        counts_rounded[top_indices] += 1
+    counts_rounded = [int(x) for x in counts_rounded]
+    return counts_rounded
+
+def run_prefill_config(model_runner, skewed_batch_lens, clear_cache=True, reqs=None):
+    """
+    Run the prefill with a specific skewed batch configuration.
+    This function is used to profile the prefill performance with different skew configurations.
+    """
+    if clear_cache:
+        model_runner.req_to_token_pool.clear()
+        model_runner.token_to_kv_pool_allocator.clear()
+    if reqs is None:
+        reqs = prepare_synthetic_inputs_for_latency_test(
+            len(skewed_batch_lens), max(skewed_batch_lens), skewed_batch_lens
+        )
+    synchronize(model_runner.device)
+    start_time = time.perf_counter()
+    next_token_ids, _, batch = extend(reqs, model_runner)
+    synchronize(model_runner.device)
+
+    end_time = time.perf_counter()
+    latency = end_time - start_time
+    if not clear_cache:
+        for req in reqs:
+            if len(req.fill_ids) != 0:
+                req.fill_ids = req.fill_ids[:req.extend_input_len]
+                req.prefix_indices = model_runner.req_to_token_pool.req_to_token[
+                    req.rid, :req.extend_input_len
+                ]
+                req.logprob_start_len = len(req.origin_input_ids) - 1
+    
+    total_tokens = sum(skewed_batch_lens)
+    throughput = total_tokens / latency
+    return latency, throughput, (next_token_ids, batch)
+
+def run_prefill_in_chunks_to_load_cache(model_runner, skewed_batch_lens, reqs, chunk_size=16384):
+    """
+    Run the prefill in chunks of up to chunk_size tokens to load the KV cache.
+    This simulates a more realistic scenario where the KV cache is filled in chunks.
+    """
+    start_index = 0
+    all_batches = []
+    all_next_token_ids = []
+
+    while start_index < len(skewed_batch_lens):
+        current_sum = 0
+        end_index = start_index
+
+        while end_index < len(skewed_batch_lens) and current_sum + skewed_batch_lens[end_index] <= chunk_size:
+            current_sum += skewed_batch_lens[end_index]
+            end_index += 1
+
+        if end_index == start_index:
+            end_index += 1
+
+        current_chunk = skewed_batch_lens[start_index:end_index]
+        current_reqs = reqs[start_index:end_index]
+
+        latency, throughput, (next_token_ids, batch) = run_prefill_config(
+            model_runner,
+            current_chunk,
+            clear_cache=False,
+            reqs=current_reqs
+        )
+        all_batches.append(batch)
+        all_next_token_ids.extend(next_token_ids)
+
+        start_index = end_index  # advance to next chunk
+
+    batch0: ScheduleBatch = all_batches[0]
+    for batch in all_batches[1:]:
+        batch0.merge_batch(batch)
+
+    return batch0, all_next_token_ids
+
+def warmup_model(model_runner):
+    np.random.seed(42)
+    warmup_reqs = prepare_synthetic_inputs_for_latency_test(
+        batch_size=1, input_len=1024, input_len_list=[1024]
+    )
+    synchronize(model_runner.device)
+    (next_token_ids,_, batch) = extend(warmup_reqs, model_runner)
+    synchronize(model_runner.device)
+    
+    decode(
+        torch.tensor(next_token_ids, device=model_runner.device),
+        batch,
+        model_runner,
+    )
+    synchronize(model_runner.device)
+
+
+def get_rank_print(model_runner):
+    return print if model_runner.tp_rank == 0 else lambda *args, **kwargs: None
+
+def write_results_to_file(results, filename):
+    with open(filename, "w") as fout:
+        for result in results:
+            fout.write(json.dumps(result) + "\n")
+
+def filter_token_lengths(lengths, max_length):
+    return [x for x in lengths if x <= max_length]
+
+def generate_test_configs(batch_sizes, token_lengths, skew_values):
+    return [
+        (batch_size, token_len, skew)
+        for batch_size in batch_sizes
+        for token_len in token_lengths
+        for skew in skew_values
+    ]
+
+def run_prefill_config_with_skew(model_runner, batch_size, token_len, skew, reqs=None):
+    skewed_batch_lens = generate_distribution_of_skewed_batch(token_len, batch_size, skew)
+    num_non_empty = sum(1 for x in skewed_batch_lens if x > 0)
+    latency, throughput, data = run_prefill_config(model_runner, skewed_batch_lens, reqs=reqs)
+    return {
+        "prefill_batch_size": num_non_empty,
+        "prefill_token_length": token_len,
+        "skew": skew,
+        "latency": latency,
+        "throughput": throughput,
+        "skewed_batch_lens": skewed_batch_lens,
+    }, data
+
+def run_prefill_profiling(model_runner, max_prefill_batch_size, profile_filename_prefix="profile"):
+    warmup_model(model_runner)
+    rank_print = get_rank_print(model_runner)
+    # rank_print("Warmup done.")
+    print("Warmup done.")
+    rank_print(f"Running prefill profiling with max_prefill_batch_size={max_prefill_batch_size}")
+
+    prefill_batch_sizes = [1, 2, 4, 8, 16, 32, 48, 64, 72, 84, 128, 256]
+    token_lengths = filter_token_lengths(
+        [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 10240, 16384],
+        max_prefill_batch_size,
+    )
+    skews = [0, 0.5, 1.0, 1.5]
+    test_configs = generate_test_configs(prefill_batch_sizes, token_lengths, skews)
+
+    prefill_results = []
+    tqdm_bar = tqdm(total=len(test_configs), desc="Prefill Profiling Progress")
+
+    for batch_size, token_len, skew in test_configs:
+        result, _ = run_prefill_config_with_skew(model_runner, batch_size, token_len, skew)
+        prefill_results.append(result)
+        tqdm_bar.update(1)
+
+    write_results_to_file(prefill_results, f"prefill_{profile_filename_prefix}_profiling_tp{model_runner.tp_rank}.jsonl")
+    return prefill_results
+
+def run_decoding_config(model_runner, next_input_ids, batch):
+    """
+    Run the decoding with a specific skewed batch configuration.
+    This function is used to profile the decoding performance with different skew configurations.
+    """
+    synchronize(model_runner.device)
+    start_time = time.perf_counter()
+    next_token_ids, _ = decode(next_input_ids, batch, model_runner)
+    synchronize(model_runner.device)
+    end_time = time.perf_counter()
+    latency = end_time - start_time
+    total_tokens = len(batch.reqs)
+    throughput = total_tokens / latency
+    return latency, throughput
+
+def run_decode_profiling(model_runner, max_token_length=None, profile_filename_prefix="profile"):
+    warmup_model(model_runner)
+    rank_print = get_rank_print(model_runner)
+    rank_print("Warmup done.")
+
+    prefill_batch_sizes = [1, 2, 4, 8, 16, 32, 48, 64, 72, 84, 128]
+    token_lengths = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 10240, 16384, 20480, 32768, 40960]
+    max_tokens_limit = int(model_runner.max_total_num_tokens * 0.8)
+    if max_token_length is not None:
+        max_tokens_limit = min(max_tokens_limit, max_token_length)
+    token_lengths = sorted(filter_token_lengths(token_lengths, max_tokens_limit))
+    skews = [0, 0.5, 1.0, 1.5, 2.0]
+    test_configs = generate_test_configs(prefill_batch_sizes, token_lengths, skews)
+    decode_results = []
+    tqdm_bar = tqdm(total=len(test_configs), desc="Decode Profiling Progress")
+
+    for batch_size, token_len, skew in test_configs:
+        skewed_batch_lens = generate_distribution_of_skewed_batch(token_len, batch_size, skew)
+        num_non_empty = sum(1 for x in skewed_batch_lens if x > 0)
+        reqs = prepare_synthetic_inputs_for_latency_test(
+            batch_size=num_non_empty, input_len=token_len, input_len_list=skewed_batch_lens
+        )
+        batch, next_token_ids = run_prefill_in_chunks_to_load_cache(
+            model_runner, skewed_batch_lens, chunk_size=16384, reqs=reqs
+        )
+        latency, throughput = run_decoding_config(model_runner, torch.tensor(next_token_ids, device=model_runner.device), batch)
+
+        decode_results.append({
+            "prefill_batch_size": num_non_empty,
+            "prefill_token_length": token_len,
+            "skew": skew,
+            "latency": latency,
+            "throughput": throughput,
+            "skewed_batch_lens": skewed_batch_lens,
+        })
+
+        model_runner.req_to_token_pool.clear()
+        model_runner.token_to_kv_pool_allocator.clear()
+        tqdm_bar.update(1)
+
+    write_results_to_file(decode_results, f"{profile_filename_prefix}_decode_profiling_tp{model_runner.tp_rank}.jsonl")
+    return decode_results
 
 def latency_test_run_once(
     run_name,
@@ -505,7 +743,6 @@ def latency_test_run_once(
     reqs,
     batch_size,
     input_len,
-    output_len,
     device,
     log_decode_step,
     profile,
@@ -515,30 +752,11 @@ def latency_test_run_once(
     skew="none",
 ):
     model_config = model_runner.model_config
-    # Handle dtype - it might already be a torch.dtype or a string
-    if isinstance(model_config.dtype, str):
-        dtype = getattr(torch, model_config.dtype)
-    else:
-        dtype = model_config.dtype
-    dtype_size = torch.tensor([], dtype=dtype).element_size()
-    kv_cache_per_token_in_bytes = (
-        2
-        * model_config.num_hidden_layers
-        * model_config.num_key_value_heads
-        * model_config.head_dim
-        * dtype_size
-    )
-    predicted_kv_usage_in_bytes = (
-        batch_size * (input_len + output_len) * kv_cache_per_token_in_bytes
-    )
-    rank_print(
-        f"Predicted peak KV cache usage: {predicted_kv_usage_in_bytes / (1024**3):.3f} GB"
-    )
-
-    max_batch_size = model_runner.max_total_num_tokens // (input_len + output_len)
+    
+    max_batch_size = model_runner.max_total_num_tokens // (input_len + 1)
     if batch_size > max_batch_size:
         rank_print(
-            f"skipping ({batch_size}, {input_len}, {output_len}) due to max batch size limit"
+            f"skipping ({batch_size}, {input_len}, {1}) due to max batch size limit"
         )
         return
 
@@ -550,7 +768,7 @@ def latency_test_run_once(
         "run_name": run_name,
         "batch_size": batch_size,
         "input_len": input_len,
-        "output_len": output_len,
+        "output_len": 1,
     }
 
     tot_latency = 0
@@ -583,7 +801,7 @@ def latency_test_run_once(
 
     # Decode
     decode_latencies = []
-    for i in range(output_len - 1):
+    for i in range(1):
         synchronize(device)
         tic = time.perf_counter()
         next_token_ids, _ = decode(next_token_ids, batch, model_runner)
@@ -604,9 +822,9 @@ def latency_test_run_once(
         os.makedirs(parent_dir, exist_ok=True)
         profiler.export_chrome_trace(profile_filename)
         rank_print(f"torch profiler chrome trace saved to {profile_filename}")
-
+    output_len = 1
     # Record decode timing from 2nd output
-    if output_len > 1:
+    if output_len >= 1:
         med_decode_latency = np.median(decode_latencies)
         med_decode_throughput = batch_size / med_decode_latency
         rank_print(
@@ -621,11 +839,43 @@ def latency_test_run_once(
     )
     measurement_results["total_latency"] = tot_latency
     measurement_results["overall_throughput"] = throughput
-    measurement_results["predicted_kv_usage_in_gb"] = (
-        predicted_kv_usage_in_bytes / (1024**3)
-    )
     measurement_results["skew"] = skew
     return measurement_results
+
+def prefill_latency_test(server_args, port_args, bench_args, tp_rank):
+    # Set CPU affinity
+    if get_bool_env_var("SGLANG_SET_CPU_AFFINITY"):
+        set_gpu_proc_affinity(server_args.tp_size, server_args.nnodes, tp_rank)
+
+    # Configure the logger
+    configure_logger(server_args, prefix=f" TP{tp_rank}")
+    rank_print = print if tp_rank == 0 else lambda *args, **kwargs: None
+
+    # Load the model
+    model_runner, tokenizer = load_model(server_args, port_args, tp_rank)
+
+    if bench_args.run_prefill_profiling:
+        run_prefill_profiling(model_runner, bench_args.input_len[0], bench_args.profile_filename_prefix)
+    
+    if server_args.tp_size > 1:
+        destroy_distributed_environment()
+
+def decode_latency_test(server_args, port_args, bench_args: BenchArgs, tp_rank):
+    # Set CPU affinity
+    if get_bool_env_var("SGLANG_SET_CPU_AFFINITY"):
+        set_gpu_proc_affinity(server_args.tp_size, server_args.nnodes, tp_rank)
+    
+    # Configure the logger
+    configure_logger(server_args, prefix=f" TP{tp_rank}")
+    rank_print = print if tp_rank == 0 else lambda *args, **kwargs: None
+
+    model_runner, tokenizer = load_model(server_args, port_args, tp_rank)
+    if bench_args.run_decode_profiling:
+        run_decode_profiling(model_runner, bench_args.max_decode_token_length, bench_args.profile_filename_prefix)
+    
+    if server_args.tp_size > 1:
+        destroy_distributed_environment()
+
 
 def latency_test(
     server_args,
@@ -662,7 +912,6 @@ def latency_test(
         reqs,
         bench_args.batch_size[0],
         bench_args.input_len[0],
-        min(32, bench_args.output_len[0]),  # shorter decoding to speed up the warmup
         server_args.device,
         log_decode_step=0,
         profile=False,
@@ -686,7 +935,6 @@ def latency_test(
             reqs,
             bs,
             il,
-            ol,
             server_args.device,
             bench_args.log_decode_step,
             bench_args.profile if tp_rank == 0 else None,
@@ -716,8 +964,13 @@ def main(server_args, bench_args):
     if server_args.model_path:
         if bench_args.correctness_test:
             work_func = correctness_test
+        elif bench_args.run_prefill_profiling:
+            work_func = prefill_latency_test
+        elif bench_args.run_decode_profiling:
+            work_func = decode_latency_test
         else:
             work_func = latency_test
+
     else:
         raise ValueError(
             "Provide --model-path for running the tests or "
@@ -745,8 +998,6 @@ def main(server_args, bench_args):
 
         for proc in workers:
             proc.join()
-
-        proc.terminate()
 
 
 if __name__ == "__main__":
