@@ -115,10 +115,18 @@ python llm_execution_time_predictor/llm_forward_predictor_cli.py predict trained
 python llm_execution_time_predictor/llm_forward_predictor_cli.py webview --predictor-file trained_predictors.json
 ```
 
+# BUGFIX OOM
+1. OOM
+if OOMs are occuring, add the flag --sandbox to the command
+In order to limit OOM, chunk prefill is auto enabled on over 100K input tokens for the prefill side(not the decode)
+
 # TODO
 1. Fix vLLM force one batch
    
 with vllm backend, currently vLLM might run more than 1 batch making some of the profiling innacurate skewing the model. Currently no good solution for this. 
+
+2. Handling OOM
+some configs with TP cause OOM. In order to handle this, I added a --sandbox mode, which just runs it slowly.
 
 # Ack
 Co-contributors: [Dongming Li](https://github.com/dongmingli-Ben) and [Zijian He](https://github.com/jiange91)

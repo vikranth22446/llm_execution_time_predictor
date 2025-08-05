@@ -7,6 +7,8 @@ import sys
 import pandas as pd
 import numpy as np
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 from llm_execution_time_predictor.batch_benchmark_runner import SimpleBenchmarkRunner
 from llm_execution_time_predictor.train_utils import build_stage_features, train_linear_predictor, preprocess_input_for_prediction
 
@@ -14,7 +16,8 @@ from llm_execution_time_predictor.train_utils import build_stage_features, train
 def profile_model(
         model_name: str, tp_size: int = 1, pp_size: int = 1, max_batch_size: int = 64, 
         max_input_tokens: int = 16384, output_len: int = 32, num_runs: int = 3, backend: str = "sglang",
-        overwrite_cache: bool = False) -> str:
+        overwrite_cache: bool = False, sandbox: bool = False, chunk_prefill: bool = False, 
+        chunk_size: int = 512, max_input_tokens_start_chunking: int = 100000) -> str:
     """Profile a model and save benchmark data."""
     try:
         import multiprocessing
@@ -44,6 +47,10 @@ def profile_model(
         skip_cache=overwrite_cache,
         cache_tag="v1",
         num_runs=num_runs,
+        sandbox=sandbox,
+        chunk_prefill=chunk_prefill,
+        chunk_size=chunk_size,
+        max_input_tokens_start_chunking=max_input_tokens_start_chunking,
     )
     
     # Get GPU model name for filename
@@ -88,7 +95,7 @@ def train_models(config_name: str, benchmark_file: str, predictor_file: str = "t
             predictors = json.load(f)
     else:
         predictors = {}
-    
+
     if config_name not in predictors:
         predictors[config_name] = {}
     
@@ -244,10 +251,14 @@ def main():
     profile_parser.add_argument('--pp_size', type=int, default=1, help='Pipeline parallel size')
     profile_parser.add_argument('--max_batch_size', type=int, default=64, help='Maximum batch size to test')
     profile_parser.add_argument('--max_input_tokens', type=int, default=16384, help='Maximum input tokens to test')
+    profile_parser.add_argument('--max_input_tokens_start_chunking', type=int, default=100000, help='Maximum input tokens to start chunk')
     profile_parser.add_argument('--output_len', type=int, default=32, help='Output length for decode phase')
-    profile_parser.add_argument('--num_runs', type=int, default=3, help='Number of runs per configuration')
+    profile_parser.add_argument('--num_runs', type=int, default=1, help='Number of runs per configuration')
     profile_parser.add_argument('--backend', default='sglang', choices=['sglang', 'vllm'], help='Backend to use for profiling (default: sglang)')
     profile_parser.add_argument('--overwrite-cache', action='store_true', help='Force overwrite of existing cache data.')
+    profile_parser.add_argument('--sandbox', action='store_true', help='Run inference in sandbox mode for better process isolation')
+    profile_parser.add_argument('--chunk-prefill', action='store_true', help='Split prefill across multiple requests')
+    profile_parser.add_argument('--chunk-size', type=int, default=4096, help='Size of each prefill chunk (default: 512)')
     
     # Train models command
     train_parser = subparsers.add_parser('train_models', help='Train regression models from benchmark data')
@@ -289,7 +300,11 @@ def main():
             args.output_len,
             args.num_runs,
             args.backend,
-            args.overwrite_cache
+            args.overwrite_cache,
+            args.sandbox,
+            args.chunk_prefill,
+            args.chunk_size,
+            args.max_input_tokens_start_chunking
         )
     elif args.command == 'train_models':
         train_models(args.config_name, args.benchmark_file, args.predictor_file)

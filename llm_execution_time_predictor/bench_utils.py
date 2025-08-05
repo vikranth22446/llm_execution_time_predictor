@@ -80,3 +80,44 @@ def average_results(results_list: List[Dict[str, Any]]) -> Dict[str, Any]:
     out["num_runs"] = len(results_list)
     out["runs_data"] = results_list
     return out
+
+
+def load_json_file(file_path: str, default: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    """Load JSON file with consistent error handling"""
+    try:
+        with open(file_path, "r") as f:
+            return json.load(f)
+    except Exception:
+        return default
+
+
+def save_json_file(file_path: str, data: Dict[str, Any]) -> bool:
+    """Save JSON file with consistent error handling"""
+    try:
+        with open(file_path, "w") as f:
+            json.dump(data, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"Failed to save {file_path}: {e}")
+        return False
+
+
+def create_backend(backend_name: str):
+    """Factory method for backend creation"""
+    from .bench_backend_handler import SGLangBackend, VLLMBackend
+    return SGLangBackend() if backend_name == "sglang" else VLLMBackend()
+
+
+def create_rank_printer(tp_rank: int):
+    """Create rank-aware print function"""
+    return print if tp_rank == 0 else lambda *args, **kwargs: None
+
+
+def format_output_filename(model_name: str, tp_size: int, backend_name: str, 
+                          gpu_model: str, pp_size: Optional[int] = None) -> str:
+    """Generate consistent output filename"""
+    model_clean = model_name.replace('/', '_')
+    if backend_name == "sglang" and pp_size is not None:
+        return f"benchmark_data_{model_clean}_TP_{tp_size}_PP_{pp_size}_{gpu_model}.json"
+    else:
+        return f"benchmark_data_{model_clean}_TP_{tp_size}_{backend_name}_{gpu_model}.json"
