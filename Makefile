@@ -48,3 +48,17 @@ test-release: clean build test-install test-upload ## Full test release workflow
 
 release: clean build test-install check upload ## Full production release workflow
 	@echo "Production release complete! Check https://pypi.org/project/$(PACKAGE_NAME)/"
+
+test-profile:
+	$(MAKE) test-profile-model MODEL_PATH=Qwen/Qwen3-4B
+
+test-profile-model:
+	@if [ -z "$(MODEL_PATH)" ]; then echo "MODEL_PATH is required. Usage: make test-profile-model MODEL_PATH=path/to/model"; exit 1; fi
+	@echo "Testing profiling with $(MODEL_PATH)..."
+# 	@echo "1. Profile prefill..."
+# 	python llm_execution_time_predictor/llm_forward_predictor_cli.py profile prefill --model-path $(MODEL_PATH) --load-format dummy
+# 	@echo "2. Profile decode..."
+# 	python llm_execution_time_predictor/llm_forward_predictor_cli.py profile decode --model-path $(MODEL_PATH) --max-decode-token-length 512 --load-format dummy
+	@echo "3. Profile real workload..."
+	python llm_execution_time_predictor/llm_forward_predictor_cli.py profile_real --model $(MODEL_PATH) --output_file test_profile_results.jsonl --max_job_send_time 5 --max_rps 5 --data_file llm_execution_time_predictor/monkey_patch_sglang/data/splitwise_code.csv
+	@echo "Profile testing completed!"

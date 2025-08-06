@@ -32,14 +32,14 @@ def build_stage_features(df: pd.DataFrame, stage: str) -> pd.DataFrame:
         - time: latency target to be predicted
     """
     df = df.copy()
-
+    # TODO: integrate the actual df["batch_lens"] to make a better predictor. Possibly the max?
     if stage == "prefill":
         # Each request has `input_len` tokens; all tokens are processed in parallel
         # Attention complexity is O(seq_len^2) per request
         df["num_new_tokens"] = df["batch_size"] * df["input_len"]
         df["prod_ext_ctx"] = df["batch_size"] * (df["input_len"] ** 2)
         df["num_context_tokens"] = df["batch_size"] * df["input_len"]
-        df["time"] = df["prefill_latency"]
+        df["time"] = df["latency"]
 
     elif stage == "decode":
         # One token is generated per request per step
@@ -47,7 +47,7 @@ def build_stage_features(df: pd.DataFrame, stage: str) -> pd.DataFrame:
         df["num_new_tokens"] = df["batch_size"]
         df["prod_ext_ctx"] = df["batch_size"] * df["input_len"]
         df["num_context_tokens"] = df["batch_size"] * df["input_len"]
-        df["time"] = df["median_decode_latency"]
+        df["time"] = df["latency"]
     else:
         raise ValueError("stage must be either 'prefill' or 'decode'")
 
