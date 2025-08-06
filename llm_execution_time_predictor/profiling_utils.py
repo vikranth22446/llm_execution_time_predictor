@@ -1,7 +1,7 @@
 import numpy as np
 import json
 import torch
-from typing import List, Optional, Tuple, Any, Union
+from typing import List, Optional, Tuple, Any, Union, Callable
 from sglang.srt.managers.schedule_batch import Req, ScheduleBatch
 from sglang.srt.managers.scheduler import Scheduler
 from sglang.srt.model_executor.forward_batch_info import ForwardBatch
@@ -338,7 +338,7 @@ def generate_distribution_skewed_batch_with_prefix_cache(
     return skewed_lengths, remaining_prefix_lengths
 
 
-def get_rank_print(model_runner: ModelRunner):
+def get_rank_print(model_runner: ModelRunner) -> Callable[..., Any]:
     return print if model_runner.tp_rank == 0 else lambda *args, **kwargs: None
 
 
@@ -354,7 +354,7 @@ def filter_token_lengths(lengths: List[int], max_length: int) -> List[int]:
 
 def load_model(server_args, port_args, tp_rank: int) -> Tuple[ModelRunner, Any]:
     suppress_other_loggers()
-    rank_print = print if tp_rank == 0 else lambda *args, **kwargs: None
+    rank_print: Callable[..., Any] = print if tp_rank == 0 else lambda *args, **kwargs: None
 
     model_config = ModelConfig.from_server_args(server_args)
     model_runner = ModelRunner(

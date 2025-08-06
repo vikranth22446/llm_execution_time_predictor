@@ -248,17 +248,20 @@ class DecodeStrategy(ProfilingStrategy):
     def run_one(self, runner: Any, cfg: DecodeConfig) -> Dict[str, Any]:
         (batch,next_ids), skewed_lens = self._prepare_cache(runner, cfg)
         latency, throughput = run_decoding_config(runner, torch.tensor(next_ids, device=runner.device), batch)
-        return create_profiling_result_dic(
+        profiling_results = create_profiling_result_dic(
             batch_size=cfg.batch_size,
             total_token_length=cfg.token_length,
             skew=cfg.skew,
             combined_seq_lens=skewed_lens,
             cached_prefix_lens=skewed_lens,
-            new_extend_lens=[1] * cfg.batch_size,  # Decoding one token
+            new_extend_lens=[1] * cfg.batch_size,
             latency=latency,
             throughput=throughput,
             forward_mode="decode"
         )
+        runner.req_to_token_pool.clear()
+        runner.token_to_kv_pool_allocator.clear()
+        return profiling_results
 
     def output_filename(self, prefix: str, tp_rank: int) -> str:
         return f"{prefix}_decode_profiling_tp{tp_rank}.jsonl"

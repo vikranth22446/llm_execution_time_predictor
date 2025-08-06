@@ -120,11 +120,22 @@ class BenchArgs:
     @classmethod
     def from_cli_args(cls, args: argparse.Namespace) -> "BenchArgs":
         # use the default value's type to cast the args into correct types.
-        attrs = [(attr.name, type(attr.default)) for attr in dataclasses.fields(cls)]
-        return cls(
-            **{
-                attr: attr_type(getattr(args, attr))
-                for attr, attr_type in attrs
-                if hasattr(args, attr)
-            }
-        )
+        kwargs = {}
+        for field in dataclasses.fields(cls):
+            if hasattr(args, field.name):
+                value = getattr(args, field.name)
+                # Handle special cases where type conversion might fail
+                if field.name in ['batch_size', 'input_len', 'output_len']:
+                    # These should be tuples, convert list to tuple if needed
+                    if isinstance(value, list):
+                        kwargs[field.name] = tuple(value)
+                    elif isinstance(value, tuple):
+                        kwargs[field.name] = value
+                    else:
+                        kwargs[field.name] = (value,)
+                elif field.name == 'batch_composition' and value is None:
+                    kwargs[field.name] = []
+                else:
+                    # For simple types, use direct assignment
+                    kwargs[field.name] = value
+        return cls(**kwargs)

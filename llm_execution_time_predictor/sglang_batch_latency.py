@@ -18,7 +18,7 @@ import logging
 import multiprocessing
 import os
 import time
-from typing import Tuple, Any, List
+from typing import Tuple, Any, List, Callable
 from enum import Enum
 import numpy as np
 import torch
@@ -60,7 +60,7 @@ from llm_execution_time_predictor.args import BenchArgs
 
 def prepare_inputs_for_correctness_test(
     bench_args: BenchArgs, tokenizer: Any
-) -> List[Req]:
+) -> Tuple[List[List[int]], List[Req]]:
     prompts = [
         "The capital of France is",
         "The capital of the United Kindom is",
@@ -156,7 +156,7 @@ def decode_latency_test(
         set_gpu_proc_affinity(server_args.tp_size, server_args.nnodes, tp_rank)
     configure_logger(server_args, prefix=f" TP{tp_rank}")
     model_runner, tokenizer = load_model(server_args, port_args, tp_rank)
-    max_token_length = bench_args.input_len[0]
+    max_token_length = bench_args.max_input_len 
     profiling = ForwardProfiler(
         strategy=DecodeStrategy(
             batch_sizes=[1, 2, 4, 8, 16, 32, 48, 64, 72, 84, 128],
@@ -283,7 +283,7 @@ def correctness_test(
 ) -> None:
     # Configure the logger
     configure_logger(server_args, prefix=f" TP{tp_rank}")
-    rank_print = print if tp_rank == 0 else lambda *args, **kwargs: None
+    rank_print: Callable[..., Any] = print if tp_rank == 0 else lambda *args, **kwargs: None
 
     # Load the model
     model_runner, tokenizer = load_model(server_args, port_args, tp_rank)
@@ -406,7 +406,7 @@ def latency_test_run_once(
             )
     output_len = 1
 
-    if profile:
+    if profile and profiler is not None:
         profiler.stop()
         profile_filename = f"{profile_filename_prefix}_batch{batch_size}_input{input_len}_output{output_len}.trace.json.gz"
         parent_dir = os.path.dirname(os.path.abspath(profile_filename))
@@ -441,9 +441,9 @@ def latency_test(server_args, port_args, bench_args, tp_rank, disable_rank_print
     # Configure the logger
     configure_logger(server_args, prefix=f" TP{tp_rank}")
     if disable_rank_print:
-        rank_print = lambda *args, **kwargs: None
+        rank_print: Callable[..., Any] = lambda *args, **kwargs: None
     else:
-        rank_print = print if tp_rank == 0 else lambda *args, **kwargs: None
+        rank_print: Callable[..., Any] = print if tp_rank == 0 else lambda *args, **kwargs: None
 
     # Load the model
     model_runner, tokenizer = load_model(server_args, port_args, tp_rank)
@@ -570,6 +570,8 @@ def parse_cli_args_main() -> Tuple[Any, BenchArgs]:
     finally:
         if server_args.tp_size != 1:
             kill_process_tree(os.getpid(), include_parent=False)
+    
+    return server_args, bench_args
 
 
 if __name__ == "__main__":
