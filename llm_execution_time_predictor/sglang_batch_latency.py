@@ -130,7 +130,7 @@ class BenchArgs:
     batch_composition: list = dataclasses.field(default_factory=list)
     run_prefill_profiling: bool = False
     run_decode_profiling: bool = False
-    max_decode_token_length: int = None
+    max_decode_token_length: int = int(1e9)
     chunk_prefill: bool = False
     chunk_size: int = 512
     skew: str = "none"
@@ -168,7 +168,7 @@ class BenchArgs:
             "--run-decode-profiling", action="store_true", help="Run decode profiling." 
         )
         parser.add_argument(
-            "--max-decode-token-length", type=int, default=None, help="Maximum token length to consider for decode profiling."
+            "--max-decode-token-length", type=int, default=BenchArgs.max_decode_token_length, help="Maximum token length to consider for decode profiling."
         )
         parser.add_argument(
             "--profile-filename-prefix",
@@ -193,8 +193,9 @@ class BenchArgs:
             type=str,
             choices=["none", "medium", "heavy"],
             default=BenchArgs.skew,
-            help="Batch length distribution skew: none (uniform), medium (mild skew), heavy (noticeable skew)"
+            help="Batch length distribution : none (uniform), medium (mild skew), heavy (noticeable skew)"
         )
+
 
     @classmethod
     def from_cli_args(cls, args: argparse.Namespace):
@@ -545,7 +546,7 @@ def run_prefill_config(model_runner, skewed_batch_lens, clear_cache=True, reqs=N
         )
     synchronize(model_runner.device)
     start_time = time.perf_counter()
-    next_token_ids, _, batch = extend(reqs, model_runner)
+    next_token_ids, _, batch, _ = extend(reqs, model_runner)
     synchronize(model_runner.device)
 
     end_time = time.perf_counter()
@@ -609,7 +610,7 @@ def warmup_model(model_runner):
         batch_size=1, input_len=1024, input_len_list=[1024]
     )
     synchronize(model_runner.device)
-    (next_token_ids,_, batch) = extend(warmup_reqs, model_runner)
+    (next_token_ids, _, batch, _) = extend(warmup_reqs, model_runner)
     synchronize(model_runner.device)
     
     decode(
@@ -644,12 +645,13 @@ def run_prefill_config_with_skew(model_runner, batch_size, token_len, skew, reqs
     num_non_empty = sum(1 for x in skewed_batch_lens if x > 0)
     latency, throughput, data = run_prefill_config(model_runner, skewed_batch_lens, reqs=reqs)
     return {
-        "prefill_batch_size": num_non_empty,
-        "prefill_token_length": token_len,
+        "batch_size": num_non_empty,
+        "total_token_length": token_len,
         "skew": skew,
         "latency": latency,
         "throughput": throughput,
-        "skewed_batch_lens": skewed_batch_lens,
+        "batch_lens": skewed_batch_lens,
+        "forward_mode": "prefill"
     }, data
 
 def run_prefill_profiling(model_runner, max_prefill_batch_size, profile_filename_prefix="profile"):
@@ -721,12 +723,13 @@ def run_decode_profiling(model_runner, max_token_length=None, profile_filename_p
         latency, throughput = run_decoding_config(model_runner, torch.tensor(next_token_ids, device=model_runner.device), batch)
 
         decode_results.append({
-            "prefill_batch_size": num_non_empty,
-            "prefill_token_length": token_len,
+            "batch_size": num_non_empty,
+            "total_token_length": token_len,
             "skew": skew,
             "latency": latency,
             "throughput": throughput,
-            "skewed_batch_lens": skewed_batch_lens,
+            "batch_lens": skewed_batch_lens,
+            "forward_mode": "decode"
         })
 
         model_runner.req_to_token_pool.clear()
@@ -757,7 +760,7 @@ def latency_test_run_once(
     if batch_size > max_batch_size:
         rank_print(
             f"skipping ({batch_size}, {input_len}, {1}) due to max batch size limit"
-        )
+       )
         return
 
     # Clear the pools.
@@ -999,8 +1002,7 @@ def main(server_args, bench_args):
         for proc in workers:
             proc.join()
 
-
-if __name__ == "__main__":
+def parse_cli_args_main():
     parser = argparse.ArgumentParser()
     ServerArgs.add_cli_args(parser)
     BenchArgs.add_cli_args(parser)
@@ -1018,3 +1020,7 @@ if __name__ == "__main__":
     finally:
         if server_args.tp_size != 1:
             kill_process_tree(os.getpid(), include_parent=False)
+
+if __name__ == "__main__":
+    parse_cli_args_main()
+   

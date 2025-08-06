@@ -39,3 +39,4 @@ htmlcov/
 .env
 .local
 *.json
+*.jsonl

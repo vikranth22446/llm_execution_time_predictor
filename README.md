@@ -40,38 +40,26 @@ Tested on both prefill/decode the decode time
 
 ### Using the PyPI Package
 ```bash
-# Profile a model and generate benchmark data
-llm-execution-time-predictor profile <model_name> --tp_size <tp_size>
+# Profile prefill performance
+llm-execution-time-predictor profile prefill --model-path <model_name>
 
-# Train models from benchmark data
-llm-execution-time-predictor train_models <config_name> <benchmark_file> [--predictor-file <output_file>]
+# Profile decode performance
+llm-execution-time-predictor profile decode --model-path <model_name> --max-decode-token-length <length>
 
-# Make predictions using trained models
-llm-execution-time-predictor predict <predictor_file> <config_name> --mode <prefill/decode> --bs <batch_size> --input-len <input_length>
-
-# View trained models and make interactive predictions (CLI)
-llm-execution-time-predictor view [--predictor-file <predictor_file>]
-
-# Launch web-based viewer with interactive plots
-llm-execution-time-predictor webview [--predictor-file <predictor_file>] [--host <host>] [--port <port>]
+# Profile real workload using monkey patching
+llm-execution-time-predictor profile_real --model <model_name> --output_file <output.jsonl>
 ```
 
-### Using from Source
+### Examples
 ```bash
-# Profile a model and generate benchmark data
-python llm_execution_time_predictor/llm_forward_predictor_cli.py profile <model_name> --tp_size <tp_size>
+# Profile prefill with dummy weights for testing
+python llm_execution_time_predictor/llm_forward_predictor_cli.py profile prefill --model-path Qwen/Qwen3-4B --load-format dummy
 
-# Train models from benchmark data
-python llm_execution_time_predictor/llm_forward_predictor_cli.py train_models <config_name> <benchmark_file> [--predictor-file <output_file>]
+# Profile decode with specific token length limit
+python llm_execution_time_predictor/llm_forward_predictor_cli.py profile decode --model-path Qwen/Qwen3-4B --max-decode-token-length 512
 
-# Make predictions using trained models
-python llm_execution_time_predictor/llm_forward_predictor_cli.py predict <predictor_file> <config_name> --mode <prefill/decode> --bs <batch_size> --input-len <input_length>
-
-# View trained models and make interactive predictions (CLI)
-python llm_execution_time_predictor/llm_forward_predictor_cli.py view [--predictor-file <predictor_file>]
-
-# Launch web-based viewer with interactive plots
-python llm_execution_time_predictor/llm_forward_predictor_cli.py webview [--predictor-file <predictor_file>] [--host <host>] [--port <port>]
+# Profile real workload with custom parameters
+python llm_execution_time_predictor/llm_forward_predictor_cli.py profile_real --model Qwen/Qwen3-4B --output_file profile_results.jsonl --max_job_send_time 10
 ```
 
 The trained predictor file format:
@@ -93,40 +81,6 @@ The trained predictor file format:
 ```
 
 Feature order: `[num_new_tokens, prod_ext_ctx, num_context_tokens, batch_size]`
-
-## Webviewer
-![Web Viewer](webview_demo.png)
-
-## Quickstart workflow
-
-### Using PyPI Package
-```bash
-llm-execution-time-predictor profile Qwen/Qwen3-4B --tp_size 1
-llm-execution-time-predictor train_models tp1_config benchmark_data_Qwen_Qwen3-4B_TP_1_PP_1.json --predictor-file trained_predictors.json
-llm-execution-time-predictor predict trained_predictors.json tp1_config --mode decode --bs 8 --input-len 1024
-llm-execution-time-predictor webview --predictor-file trained_predictors.json
-```
-
-### Using from Source
-```bash
-python llm_execution_time_predictor/llm_forward_predictor_cli.py profile Qwen/Qwen3-4B --tp_size 1
-python llm_execution_time_predictor/llm_forward_predictor_cli.py train_models tp1_config benchmark_data_Qwen_Qwen3-4B_TP_1_PP_1.json --predictor-file trained_predictors.json
-python llm_execution_time_predictor/llm_forward_predictor_cli.py predict trained_predictors.json tp1_config --mode decode --bs 8 --input-len 1024
-python llm_execution_time_predictor/llm_forward_predictor_cli.py webview --predictor-file trained_predictors.json
-```
-
-# BUGFIX OOM
-1. OOM
-if OOMs are occuring, add the flag --sandbox to the command
-In order to limit OOM, chunk prefill is auto enabled on over 100K input tokens for the prefill side(not the decode)
-
-# TODO
-1. Fix vLLM force one batch
-   
-with vllm backend, currently vLLM might run more than 1 batch making some of the profiling innacurate skewing the model. Currently no good solution for this. 
-
-2. Handling OOM
-some configs with TP cause OOM. In order to handle this, I added a --sandbox mode, which just runs it slowly.
 
 # Ack
 Co-contributors: [Dongming Li](https://github.com/dongmingli-Ben) and [Zijian He](https://github.com/jiange91)

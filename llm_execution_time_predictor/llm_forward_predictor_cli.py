@@ -1,320 +1,136 @@
-#!/usr/bin/env python3
-
 import argparse
-import json
 import os
+import subprocess
 import sys
-import pandas as pd
-import numpy as np
+from pathlib import Path
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+# Import the existing argument parsing functions
+try:
+    from sglang_batch_latency import ServerArgs, BenchArgs, main as sglang_main
+except ImportError as e:
+    from .sglang_batch_latency import ServerArgs, BenchArgs, main as sglang_main
+    
+# Get the directory containing this script
+SCRIPT_DIR = Path(__file__).parent
+MONKEY_PATCH_SCRIPT = SCRIPT_DIR / "monkey_patch_sglang" / "run_splitwise_file.py"
 
-from llm_execution_time_predictor.batch_benchmark_runner import SimpleBenchmarkRunner
-from llm_execution_time_predictor.train_utils import build_stage_features, train_linear_predictor, preprocess_input_for_prediction
+def profile_prefill(server_args, bench_args):
+    """Profile prefill performance using SGLang batch latency."""
+    bench_args.run_prefill_profiling = True
+    bench_args.run_decode_profiling = False
+    bench_args.correctness_test = False
+    sglang_main(server_args, bench_args)
 
+def profile_decode(server_args, bench_args):
+    """Profile decode performance using SGLang batch latency."""
+    bench_args.run_prefill_profiling = False
+    bench_args.run_decode_profiling = True
+    bench_args.correctness_test = False
+    sglang_main(server_args, bench_args)
 
-def profile_model(
-        model_name: str, tp_size: int = 1, pp_size: int = 1, max_batch_size: int = 64, 
-        max_input_tokens: int = 16384, output_len: int = 32, num_runs: int = 3, backend: str = "sglang",
-        overwrite_cache: bool = False, sandbox: bool = False, chunk_prefill: bool = False, 
-        chunk_size: int = 512, max_input_tokens_start_chunking: int = 100000) -> str:
-    """Profile a model and save benchmark data."""
-    try:
-        import multiprocessing
-        multiprocessing.set_start_method("spawn", force=True)
-    except RuntimeError:
-        pass
-
-    # Import and create backend
-    from llm_execution_time_predictor.bench_backend_handler import SGLangBackend, VLLMBackend
+def profile_real(args):
+    """Profile real workload using monkey patching script."""
+    env = os.environ.copy()
     
-    if backend == "sglang":
-        backend_instance = SGLangBackend()
-    elif backend == "vllm":
-        backend_instance = VLLMBackend()
-    else:
-        raise ValueError(f"Unsupported backend: {backend}. Supported backends: sglang, vllm")
+    # Set the profiling output environment variable
+    if args.output_file:
+        env['SGLANG_PROFILE_OUTPUT'] = args.output_file
     
-    runner = SimpleBenchmarkRunner(backend_instance)
+    cmd = [
+        sys.executable, str(MONKEY_PATCH_SCRIPT),
+        "--model", args.model,
+        "--max_job_send_time", str(args.max_job_send_time)
+    ]
+    if args.data_file:
+        cmd.extend(["--data_file", args.data_file])
     
-    results = runner.run_sweep(
-        model_path=model_name,
-        max_batch_size=max_batch_size,
-        max_input_tokens=max_input_tokens,
-        output_len=output_len,
-        server_args={"load_format": "dummy", "tp_size": tp_size, "pp_size": pp_size},
-        use_cache=not overwrite_cache,
-        skip_cache=overwrite_cache,
-        cache_tag="v1",
-        num_runs=num_runs,
-        sandbox=sandbox,
-        chunk_prefill=chunk_prefill,
-        chunk_size=chunk_size,
-        max_input_tokens_start_chunking=max_input_tokens_start_chunking,
-    )
+    if args.max_rps:
+        cmd.extend(["--max_rps", str(args.max_rps)])
     
-    # Get GPU model name for filename
-    gpu_model = results.get('metadata', {}).get('gpu_model')
-    if gpu_model is None:
-        # Fallback: detect current GPU if not in metadata
-        from llm_execution_time_predictor.bench_utils import get_gpu_info
-        gpu_info = get_gpu_info()
-        gpu_model = gpu_info.get('gpu_model', 'unknown')
+    if args.rps_scale:
+        cmd.extend(["--rps_scale", str(args.rps_scale)])
     
-    out_name = f"benchmark_data_{model_name.replace('/','_')}_TP_{tp_size}_PP_{pp_size}_{gpu_model}_{backend}.json"
-    with open(out_name, "w") as f:
-        json.dump(results, f, indent=2)
+    if args.output_file:
+        cmd.extend(["--output_file", args.output_file])
     
-    print(f"Profiling complete. Results saved to {out_name}")
-    print(f"Successful configs: {len(results.get('results', []))}")
-    print(f"Failed configs: {len(results.get('metadata', {}).get('failed_configs', []))}")
-    
-    return out_name
-
-
-def train_models(config_name: str, benchmark_file: str, predictor_file: str = "trained_predictors.json") -> None:
-    """Train regression models from benchmark data."""
-    if not os.path.exists(benchmark_file):
-        print(f"Error: Benchmark file {benchmark_file} not found")
-        sys.exit(1)
-    
-    with open(benchmark_file, 'r') as f:
-        data = json.load(f)
-    
-    results = data.get('results', [])
-    metadata = data.get('metadata', {})
-    if not results:
-        print("Error: No benchmark results found in benchmark file")
-        sys.exit(1)
-    
-    df = pd.DataFrame(results)
-    
-    # Load or create predictor storage
-    if os.path.exists(predictor_file):
-        with open(predictor_file, 'r') as f:
-            predictors = json.load(f)
-    else:
-        predictors = {}
-
-    if config_name not in predictors:
-        predictors[config_name] = {}
-    
-    # Add metadata to the config
-    predictors[config_name]["metadata"] = metadata
-    
-    print(f"Training models for config: {config_name}")
-    print(f"Training data: {len(df)} benchmark results")
-    
-    for stage in ['prefill', 'decode']:
-        print(f"\nTraining {stage} predictor...")
-        
-        stage_df = build_stage_features(df, stage)
-        stage_df = stage_df.dropna()
-        
-        if len(stage_df) == 0:
-            print(f"Warning: No valid {stage} data found")
-            continue
-        
-        # Train linear model
-        model = train_linear_predictor(stage_df, f"{config_name}_{stage}")
-        
-        # Calculate MSE for the model
-        X_train = stage_df[['num_new_tokens', 'prod_ext_ctx', 'num_context_tokens', 'batch_size']].to_numpy(dtype=np.float32)
-        y_train = stage_df['time'].to_numpy(dtype=np.float32)
-        y_pred = model.predict(X_train)
-        mse = np.mean((y_train - y_pred) ** 2)
-        
-        # Store model parameters including MSE
-        predictors[config_name][stage] = {
-            "weights": model.coef_.tolist(),
-            "bias": float(model.intercept_),
-            "model_type": "linear",
-            "mse": float(mse)
-        }
-    
-    # Save trained predictors
-    with open(predictor_file, 'w') as f:
-        json.dump(predictors, f, indent=2)
-    
-    print(f"\nModels trained and saved to {predictor_file}")
-
-
-def predict_latency(predictor_file: str, config_name: str, mode: str, batch_size: int, input_len: int) -> None:
-    """Make latency predictions using trained models."""
-    if not os.path.exists(predictor_file):
-        print(f"Error: Predictor file {predictor_file} not found")
-        sys.exit(1)
-    
-    with open(predictor_file, 'r') as f:
-        predictors = json.load(f)
-    
-    if config_name not in predictors:
-        print(f"Error: Config '{config_name}' not found in predictor file")
-        print(f"Available configs: {list(predictors.keys())}")
-        sys.exit(1)
-    
-    if mode not in predictors[config_name]:
-        print(f"Error: Mode '{mode}' not found for config '{config_name}'")
-        print(f"Available modes: {list(predictors[config_name].keys())}")
-        sys.exit(1)
-    
-    model_data = predictors[config_name][mode]
-    weights = np.array(model_data["weights"])
-    bias = model_data["bias"]
-    
-    # Prepare features
-    features = preprocess_input_for_prediction(batch_size, input_len, True, mode)
-    
-    # Make prediction
-    prediction = np.dot(weights, features) + bias
-    
-    print(f"Prediction for {config_name} ({mode}):")
-    print(f"  Batch size: {batch_size}")
-    print(f"  Input length: {input_len}")
-    print(f"  Predicted latency: {prediction*1000:.2f}ms")
-
-
-def view_predictions(predictor_file: str = "trained_predictors.json") -> None:
-    """Simple viewer for prediction models."""
-    if not os.path.exists(predictor_file):
-        print(f"No trained predictors found at {predictor_file}. Run 'train_models' first.")
-        sys.exit(1)
-    
-    with open(predictor_file, 'r') as f:
-        predictors = json.load(f)
-    
-    print("Available prediction models:")
-    print("=" * 50)
-    
-    for config_name, config_data in predictors.items():
-        print(f"\nConfig: {config_name}")
-        for mode, model_data in config_data.items():
-            weights = model_data.get("weights", [])
-            bias = model_data.get("bias", 0)
-            print(f"  {mode}:")
-            print(f"    Weights: {[f'{w:.4f}' for w in weights]}")
-            print(f"    Bias: {bias:.4f}")
-    
-    print("\nFeature order: [num_new_tokens, prod_ext_ctx, num_context_tokens, batch_size]")
-    
-    # Interactive prediction
-    while True:
-        try:
-            print("\nEnter prediction parameters (or 'quit' to exit):")
-            config = input("Config name: ").strip()
-            if config.lower() == 'quit':
-                break
-            
-            if config not in predictors:
-                print(f"Config '{config}' not found")
-                continue
-            
-            mode = input("Mode (prefill/decode): ").strip()
-            if mode not in predictors[config]:
-                print(f"Mode '{mode}' not found for config '{config}'")
-                continue
-            
-            batch_size = int(input("Batch size: "))
-            input_len = int(input("Input length: "))
-            
-            predict_latency(predictor_file, config, mode, batch_size, input_len)
-            
-        except (ValueError, KeyboardInterrupt):
-            print("\nExiting...")
-            break
-
-
-def launch_web_viewer(predictor_file: str = "trained_predictors.json", host: str = "0.0.0.0", port: int = 7860) -> None:
-    """Launch the web-based viewer using Gradio."""
-    try:
-        from llm_execution_time_predictor.llm_predictor_viewer import demo
-        print(f"Launching web viewer at http://{host}:{port}")
-        print("Press Ctrl+C to stop the server")
-        demo.launch(share=False, server_name=host, server_port=port)
-    except ImportError as e:
-        print(f"Error importing web viewer: {e}")
-        print("Make sure all required dependencies are installed (gradio, plotly)")
-        sys.exit(1)
-    except Exception as e:
-        print(f"Error launching web viewer: {e}")
-        sys.exit(1)
-
+    print(f"Running: {' '.join(cmd)}")
+    print(f"Environment: SGLANG_PROFILE_OUTPUT={env.get('SGLANG_PROFILE_OUTPUT', 'Not set')}")
+    return subprocess.run(cmd, env=env)
 
 def main():
-    parser = argparse.ArgumentParser(description="LLM Forward Time Profiler CLI")
+    parser = argparse.ArgumentParser(
+        description="LLM Forward Predictor CLI",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+            Examples:
+            # Profile prefill performance
+            %(prog)s profile prefill --model-path meta-llama/Meta-Llama-3-8B-Instruct
+
+            # Profile decode performance  
+            %(prog)s profile decode --model-path meta-llama/Meta-Llama-3-8B-Instruct --max-decode-token-length 8192
+
+            # Profile real workload
+            %(prog)s profile_real --model Qwen/Qwen3-8B --output_file qwen3_8b_log.jsonl --max_job_send_time 10
+        """
+    )
+    
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
     
-    # Profile command
-    profile_parser = subparsers.add_parser('profile', help='Profile a model')
-    profile_parser.add_argument('model_name', help='Model name or path')
-    profile_parser.add_argument('--tp_size', type=int, default=1, help='Tensor parallel size')
-    profile_parser.add_argument('--pp_size', type=int, default=1, help='Pipeline parallel size')
-    profile_parser.add_argument('--max_batch_size', type=int, default=64, help='Maximum batch size to test')
-    profile_parser.add_argument('--max_input_tokens', type=int, default=16384, help='Maximum input tokens to test')
-    profile_parser.add_argument('--max_input_tokens_start_chunking', type=int, default=100000, help='Maximum input tokens to start chunk')
-    profile_parser.add_argument('--output_len', type=int, default=32, help='Output length for decode phase')
-    profile_parser.add_argument('--num_runs', type=int, default=1, help='Number of runs per configuration')
-    profile_parser.add_argument('--backend', default='sglang', choices=['sglang', 'vllm'], help='Backend to use for profiling (default: sglang)')
-    profile_parser.add_argument('--overwrite-cache', action='store_true', help='Force overwrite of existing cache data.')
-    profile_parser.add_argument('--sandbox', action='store_true', help='Run inference in sandbox mode for better process isolation')
-    profile_parser.add_argument('--chunk-prefill', action='store_true', help='Split prefill across multiple requests')
-    profile_parser.add_argument('--chunk-size', type=int, default=4096, help='Size of each prefill chunk (default: 512)')
+    # Profile command with subcommands
+    profile_parser = subparsers.add_parser('profile', help='Profile performance')
+    profile_subparsers = profile_parser.add_subparsers(dest='profile_type', help='Profile type')
     
-    # Train models command
-    train_parser = subparsers.add_parser('train_models', help='Train regression models from benchmark data')
-    train_parser.add_argument('config_name', help='Name for this configuration')
-    train_parser.add_argument('benchmark_file', help='Path to benchmark data JSON file')
-    train_parser.add_argument('--predictor-file', default='trained_predictors.json', help='Path to output predictor file (default: trained_predictors.json)')
+    # Prefill profiling - reuse existing argument parsers
+    prefill_parser = profile_subparsers.add_parser('prefill', help='Profile prefill performance')
+    ServerArgs.add_cli_args(prefill_parser)
+    BenchArgs.add_cli_args(prefill_parser)
     
-    # Predict command
-    predict_parser = subparsers.add_parser('predict', help='Make latency predictions')
-    predict_parser.add_argument('predictor_file', help='Path to trained predictors JSON file')
-    predict_parser.add_argument('config_name', help='Configuration name to use')
-    predict_parser.add_argument('--mode', choices=['prefill', 'decode'], required=True, help='Prediction mode')
-    predict_parser.add_argument('--bs', type=int, required=True, help='Batch size')
-    predict_parser.add_argument('--input-len', dest='input_len', type=int, required=True, help='Input length')
+    # Decode profiling - reuse existing argument parsers
+    decode_parser = profile_subparsers.add_parser('decode', help='Profile decode performance')
+    ServerArgs.add_cli_args(decode_parser)
+    BenchArgs.add_cli_args(decode_parser)
     
-    # View command
-    view_parser = subparsers.add_parser('view', help='View trained models and make interactive predictions')
-    view_parser.add_argument('--predictor-file', default='trained_predictors.json', help='Path to predictor file (default: trained_predictors.json)')
-    
-    # Web viewer command
-    webview_parser = subparsers.add_parser('webview', help='Launch web-based interactive viewer with plots')
-    webview_parser.add_argument('--predictor-file', default='trained_predictors.json', help='Path to predictor file (default: trained_predictors.json)')
-    webview_parser.add_argument('--host', default='0.0.0.0', help='Host to bind the server (default: 0.0.0.0)')
-    webview_parser.add_argument('--port', type=int, default=7860, help='Port to bind the server (default: 7860)')
+    # Real workload profiling
+    real_parser = subparsers.add_parser('profile_real', help='Profile real workload using monkey patching')
+    real_parser.add_argument('--model', type=str, required=True, help='Model name/path')
+    real_parser.add_argument('--output_file', type=str, help='Output file for profiling results')
+    real_parser.add_argument('--max_job_send_time', type=int, default=60, help='Maximum job send time in seconds')
+    real_parser.add_argument('--data_file', type=str, default='data/splitwise_code.csv', help='Data file to use')
+    real_parser.add_argument('--max_rps', type=int, default=10, help='Maximum requests per second')
+    real_parser.add_argument('--rps_scale', type=float, default=1.0, help='RPS scaling factor')
     
     args = parser.parse_args()
     
     if not args.command:
         parser.print_help()
-        sys.exit(1)
+        return 1
     
+    # Validate script paths exist for profile_real
+    if args.command == 'profile_real' and not MONKEY_PATCH_SCRIPT.exists():
+        print(f"Error: Monkey patch script not found at {MONKEY_PATCH_SCRIPT}")
+        return 1
+    
+    # Execute the appropriate command
     if args.command == 'profile':
-        profile_model(
-            args.model_name,
-            args.tp_size,
-            args.pp_size,
-            args.max_batch_size,
-            args.max_input_tokens,
-            args.output_len,
-            args.num_runs,
-            args.backend,
-            args.overwrite_cache,
-            args.sandbox,
-            args.chunk_prefill,
-            args.chunk_size,
-            args.max_input_tokens_start_chunking
-        )
-    elif args.command == 'train_models':
-        train_models(args.config_name, args.benchmark_file, args.predictor_file)
-    elif args.command == 'predict':
-        predict_latency(args.predictor_file, args.config_name, args.mode, args.bs, args.input_len)
-    elif args.command == 'view':
-        view_predictions(args.predictor_file)
-    elif args.command == 'webview':
-        launch_web_viewer(args.predictor_file, args.host, args.port)
-
+        if args.profile_type == 'prefill':
+            server_args = ServerArgs.from_cli_args(args)
+            bench_args = BenchArgs.from_cli_args(args)
+            profile_prefill(server_args, bench_args)
+        elif args.profile_type == 'decode':
+            server_args = ServerArgs.from_cli_args(args)
+            bench_args = BenchArgs.from_cli_args(args)
+            profile_decode(server_args, bench_args)
+        else:
+            profile_parser.print_help()
+            return 1
+    elif args.command == 'profile_real':
+        result = profile_real(args)
+        return result.returncode if result else 0
+    else:
+        parser.print_help()
+        return 1
+    
+    return 0
 
 if __name__ == "__main__":
     main()

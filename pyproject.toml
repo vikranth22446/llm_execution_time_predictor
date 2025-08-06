@@ -60,4 +60,9 @@ where = ["."]
 include = ["llm_execution_time_predictor*"]
 
 [tool.setuptools.package-data]
-llm_execution_time_predictor = ["*.json"]
+llm_execution_time_predictor = [
+    "*.json",
+    "monkey_patch_sglang/*.py",
+    "monkey_patch_sglang/data/*.csv",
+    "monkey_patch_sglang/*.md"
+]
