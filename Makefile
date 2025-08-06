@@ -42,10 +42,10 @@ dev-install: ## Install package in development mode
 check: ## Check package metadata and description
 	twine check $(DIST_DIR)*
 
-test: test-minimal ## Run all tests
+test: test-minimal
 
-test-minimal: ## Ultra-minimal end-to-end test for all modes (< 60 seconds)
-# 	@echo "Running ultra-minimal end-to-end test..."
+test-minimal: 
+	@echo "Running ultra-minimal end-to-end test..."
 	@mkdir -p test_output
 	@echo "1. CLI smoke test..."
 	@python -m llm_execution_time_predictor.llm_forward_predictor_cli --help > /dev/null && echo "✓ CLI works" || (echo "✗ CLI failed" && exit 1)
