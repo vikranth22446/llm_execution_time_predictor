@@ -2,6 +2,10 @@
 requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.pyrefly]
+project-includes = ["**/*"]
+project-excludes = ["**/*venv/**/*"]
+
 [project]
 name = "llm_execution_time_predictor"
 version = "0.1.2"

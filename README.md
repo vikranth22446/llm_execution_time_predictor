@@ -46,6 +46,9 @@ llm-execution-time-predictor profile prefill --model-path <model_name>
 # Profile decode performance
 llm-execution-time-predictor profile decode --model-path <model_name> --max-decode-token-length <length>
 
+# Profile prefill performance with prefix cache
+llm-execution-time-predictor profile prefill-prefix-cache --model-path <model_name>
+
 # Profile real workload using monkey patching
 llm-execution-time-predictor profile_real --model <model_name> --output_file <output.jsonl>
 ```
@@ -53,13 +56,16 @@ llm-execution-time-predictor profile_real --model <model_name> --output_file <ou
 ### Examples
 ```bash
 # Profile prefill with dummy weights for testing
-python llm_execution_time_predictor/llm_forward_predictor_cli.py profile prefill --model-path Qwen/Qwen3-4B --load-format dummy
+python3 -m llm_execution_time_predictor.llm_forward_predictor_cli profile prefill --model-path Qwen/Qwen3-4B --load-format dummy
 
 # Profile decode with specific token length limit
-python llm_execution_time_predictor/llm_forward_predictor_cli.py profile decode --model-path Qwen/Qwen3-4B --max-decode-token-length 512
+python -m llm_execution_time_predictor.llm_forward_predictor_cli profile decode --model-path Qwen/Qwen3-4B --max-decode-token-length 512
+
+# Profile prefill with prefix cache
+python -m llm_execution_time_predictor.llm_forward_predictor_cli profile prefill-prefix-cache --model-path Qwen/Qwen3-4B --load-format dummy
 
 # Profile real workload with custom parameters
-python llm_execution_time_predictor/llm_forward_predictor_cli.py profile_real --model Qwen/Qwen3-4B --output_file profile_results.jsonl --max_job_send_time 10
+python -m llm_execution_time_predictor.llm_forward_predictor_cli profile_real --model Qwen/Qwen3-4B --output_file profile_results.jsonl --max_job_send_time 10
 ```
 
 The trained predictor file format:
