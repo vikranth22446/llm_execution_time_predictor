@@ -5,10 +5,13 @@ from sklearn.ensemble import RandomForestRegressor
 import pandas as pd
 import json
 
-def preprocess_input_for_prediction(batch_size, avg_context_len, gpu, mode="prefill") -> float:
-    if mode=="prefill":
+
+def preprocess_input_for_prediction(
+    batch_size, avg_context_len, gpu, mode="prefill"
+) -> float:
+    if mode == "prefill":
         num_new_tokens = batch_size * avg_context_len
-        prod_ext_ctx = batch_size * (avg_context_len ** 2)
+        prod_ext_ctx = batch_size * (avg_context_len**2)
         num_context_tokens = avg_context_len * batch_size
         num_batch_size = batch_size
     else:
@@ -17,6 +20,7 @@ def preprocess_input_for_prediction(batch_size, avg_context_len, gpu, mode="pref
         num_context_tokens = avg_context_len * batch_size
         num_batch_size = batch_size
     return [num_new_tokens, prod_ext_ctx, num_context_tokens, num_batch_size]
+
 
 def build_stage_features(df: pd.DataFrame, stage: str) -> pd.DataFrame:
     """
@@ -51,14 +55,19 @@ def build_stage_features(df: pd.DataFrame, stage: str) -> pd.DataFrame:
     else:
         raise ValueError("stage must be either 'prefill' or 'decode'")
 
-    return df[["num_new_tokens", "prod_ext_ctx", "num_context_tokens", "batch_size", "time"]]
+    return df[
+        ["num_new_tokens", "prod_ext_ctx", "num_context_tokens", "batch_size", "time"]
+    ]
+
 
 def train_linear_predictor(train_df: pd.DataFrame, name):
     """
     Train a linear regression model to predict latency based on engineered features.
     """
-    X_train = train_df[['num_new_tokens', 'prod_ext_ctx', 'num_context_tokens', 'batch_size']].to_numpy(dtype=np.float32)
-    y_train = train_df['time'].to_numpy(dtype=np.float32)
+    X_train = train_df[
+        ["num_new_tokens", "prod_ext_ctx", "num_context_tokens", "batch_size"]
+    ].to_numpy(dtype=np.float32)
+    y_train = train_df["time"].to_numpy(dtype=np.float32)
     lr_model = LinearRegression()
     lr_model.fit(X_train, y_train)
 
@@ -70,14 +79,17 @@ def train_linear_predictor(train_df: pd.DataFrame, name):
     print(f"Train R2: {r2_score(y_train, y_pred_lr):.4f}")
     return lr_model
 
+
 def train_tree_predictor(train_df: pd.DataFrame, name):
     """
     Train a decision tree model to predict latency based on engineered features.
     """
 
     # Extract features and target
-    X_train = train_df[['num_new_tokens', 'prod_ext_ctx', 'num_context_tokens', 'batch_size']].to_numpy(dtype=np.float32)
-    y_train = train_df['time'].to_numpy(dtype=np.float32)
+    X_train = train_df[
+        ["num_new_tokens", "prod_ext_ctx", "num_context_tokens", "batch_size"]
+    ].to_numpy(dtype=np.float32)
+    y_train = train_df["time"].to_numpy(dtype=np.float32)
 
     # Fit Decision Tree Regressor
     tree_model = RandomForestRegressor(
@@ -89,7 +101,9 @@ def train_tree_predictor(train_df: pd.DataFrame, name):
     y_pred_tree = tree_model.predict(X_train)
 
     print(f"Decision Tree: {name}")
-    print(f"Train RMSE: {np.sqrt(mean_squared_error(y_train, y_pred_tree)) * 1000:.2f}ms")
+    print(
+        f"Train RMSE: {np.sqrt(mean_squared_error(y_train, y_pred_tree)) * 1000:.2f}ms"
+    )
     print(f"Train MAE: {mean_absolute_error(y_train, y_pred_tree) * 1000:.2f}ms")
     print(f"Train R2: {r2_score(y_train, y_pred_tree):.4f}")
     return tree_model
