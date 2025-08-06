@@ -31,6 +31,15 @@ def profile_decode(server_args, bench_args):
     sglang_main(server_args, bench_args)
 
 
+def profile_prefill_with_prefix_cache(server_args, bench_args):
+    """Profile prefill performance with prefix cache using SGLang batch latency."""
+    bench_args.run_prefill_profiling = False
+    bench_args.run_decode_profiling = False
+    bench_args.run_prefill_profiling_with_prefix_cache = True
+    bench_args.correctness_test = False
+    sglang_main(server_args, bench_args)
+
+
 def profile_real(args):
     """Profile real workload using monkey patching script."""
     env = os.environ.copy()
@@ -78,6 +87,9 @@ def main():
             # Profile decode performance  
             %(prog)s profile decode --model-path meta-llama/Meta-Llama-3-8B-Instruct --max-decode-token-length 8192
 
+            # Profile prefill performance with prefix cache
+            %(prog)s profile prefill-prefix-cache --model-path meta-llama/Meta-Llama-3-8B-Instruct
+
             # Profile real workload
             %(prog)s profile_real --model Qwen/Qwen3-8B --output_file qwen3_8b_log.jsonl --max_job_send_time 10
         """,
@@ -104,6 +116,13 @@ def main():
     )
     ServerArgs.add_cli_args(decode_parser)
     BenchArgs.add_cli_args(decode_parser)
+
+    # Prefill profiling with prefix cache - reuse existing argument parsers
+    prefill_prefix_cache_parser = profile_subparsers.add_parser(
+        "prefill-prefix-cache", help="Profile prefill performance with prefix cache"
+    )
+    ServerArgs.add_cli_args(prefill_prefix_cache_parser)
+    BenchArgs.add_cli_args(prefill_prefix_cache_parser)
 
     # Real workload profiling
     real_parser = subparsers.add_parser(
@@ -153,6 +172,10 @@ def main():
             server_args = ServerArgs.from_cli_args(args)
             bench_args = BenchArgs.from_cli_args(args)
             profile_decode(server_args, bench_args)
+        elif args.profile_type == "prefill-prefix-cache":
+            server_args = ServerArgs.from_cli_args(args)
+            bench_args = BenchArgs.from_cli_args(args)
+            profile_prefill_with_prefix_cache(server_args, bench_args)
         else:
             profile_parser.print_help()
             return 1

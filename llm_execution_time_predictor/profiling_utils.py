@@ -174,10 +174,6 @@ def run_prefill_config(
     """Run prefill with optional prefix cache. Returns (latency, throughput, (tokens, batch)).
     clear_cache=False preserves KV cache between calls.
     """
-    """
-    Run the prefill with a specific skewed batch configuration.
-    This function is used to profile the prefill performance with different skew configurations.
-    """
     if clear_cache:
         model_runner.req_to_token_pool.clear()
         model_runner.token_to_kv_pool_allocator.clear()
@@ -186,24 +182,17 @@ def run_prefill_config(
             len(skewed_batch_lens), max(skewed_batch_lens), skewed_batch_lens
         )
     if prefix_cached_lengths is not None:
-        # Filter erqs with 0 prefix cache length
         reqs_non_zero = [
             req for req, pre_len in zip(reqs, prefix_cached_lengths) if pre_len > 0
         ]
-       
-        for i, req in enumerate(reqs):
-            req.extend_input_len = prefix_cached_lengths[i]
 
         if len(reqs_non_zero) != 0:
-            breakpoint()
+            for i, req in enumerate(reqs_non_zero):
+                req.extend_input_len = prefix_cached_lengths[i]
+                req.fill_ids = req.fill_ids[: len(req.prefix_indices) + req.extend_input_len]
             run_prefill_in_chunks_to_load_cache(
                 model_runner, prefix_cached_lengths[: len(reqs_non_zero)], reqs_non_zero, chunk_size=chunk_prefill_size
             )
-
-        # Set the remaining extend input lens
-        for i, req in enumerate(reqs):
-            req.extend_input_len = skewed_batch_lens[i] - req.extend_input_len
-    
     synchronize(model_runner.device)
     start_time = time.perf_counter()
     next_token_ids, _, batch, _ = extend(reqs, model_runner)
@@ -214,10 +203,13 @@ def run_prefill_config(
     if not clear_cache:
         for req in reqs:
             if len(req.fill_ids) != 0:
-                req.fill_ids = req.fill_ids[: req.extend_input_len]
-                req.prefix_indices = model_runner.req_to_token_pool.req_to_token[
-                    req.rid, : req.extend_input_len
-                ]
+                # Filled length 
+                cached_length = len(req.fill_ids)
+                req.fill_ids = req.origin_input_ids + req.output_ids  
+                req.prefix_indices = model_runner.req_to_token_pool.req_to_token[  
+                    req.req_pool_idx, : len(req.prefix_indices) + cached_length  
+                ]  
+                req.extend_input_len = len(req.fill_ids) - len(req.prefix_indices)  
                 req.logprob_start_len = len(req.origin_input_ids) - 1
 
     total_tokens = sum(skewed_batch_lens)
@@ -315,7 +307,7 @@ def generate_distribution_skewed_batch_with_prefix_cache(
         total_elements, batch_size, skew
     )
     if chunked_prefill_distribution:
-        return skewed_lengths, [skewed_lengths[0] * prefix_cache_percent] + [0] * (
+        return skewed_lengths, [int(skewed_lengths[0] * prefix_cache_percent)] + [0] * (
             batch_size - 1
         )
     total_cached_tokens = int(total_elements * prefix_cache_percent)
@@ -385,3 +377,30 @@ def load_model(server_args, port_args, tp_rank: int) -> Tuple[ModelRunner, Any]:
     if server_args.tp_size > 1:
         dist.barrier()
     return model_runner, tokenizer
+
+def create_profiling_result_dic(
+    batch_size: int,
+    total_token_length: int,
+    skew: float,
+    combined_seq_lens: list,
+    cached_prefix_lens: list,
+    new_extend_lens: list,
+    latency: float,
+    throughput: float,
+    forward_mode: str,
+    **optional_fields
+) -> dict:
+    result = {
+        "batch_size": batch_size,
+        "total_token_length": total_token_length,
+        "skew": skew,
+        "combined_seq_lens": combined_seq_lens,
+        "cached_prefix_lens": cached_prefix_lens,
+        "new_extend_lens": new_extend_lens,
+        "total_extend_len": sum(new_extend_lens),
+        "latency": latency,
+        "throughput": throughput,
+        "forward_mode": forward_mode,
+    }
+    result.update(optional_fields)
+    return result

@@ -136,10 +136,11 @@ def prefill_latency_test(
                 16384,
             ],
             skews=[0, 0.5, 1.0, 1.5],
-            max_prefill_batch_size=bench_args.input_len[0],
+            max_prefill_token_len=bench_args.max_input_len,
+            max_batch_size=bench_args.max_batch_size,
         ),
         runner=model_runner,
-        output_dir=Path(server_args.output_dir),
+        output_dir=Path(bench_args.output_dir),
         prefix="prefill",
     )
     profiling.run()
@@ -150,13 +151,12 @@ def prefill_latency_test(
 def decode_latency_test(
     server_args: Any, port_args: Any, bench_args: BenchArgs, tp_rank: int
 ) -> None:
-    assert bench_args.run_prefill_profiling
+    assert bench_args.run_decode_profiling
     if get_bool_env_var("SGLANG_SET_CPU_AFFINITY"):
         set_gpu_proc_affinity(server_args.tp_size, server_args.nnodes, tp_rank)
     configure_logger(server_args, prefix=f" TP{tp_rank}")
     model_runner, tokenizer = load_model(server_args, port_args, tp_rank)
     max_token_length = bench_args.input_len[0]
-    output_dir = "profiling_results"
     profiling = ForwardProfiler(
         strategy=DecodeStrategy(
             batch_sizes=[1, 2, 4, 8, 16, 32, 48, 64, 72, 84, 128],
@@ -185,9 +185,10 @@ def decode_latency_test(
             max_tokens_limit=min(
                 max_token_length, int(model_runner.max_total_num_tokens * 0.8)
             ),
+            max_batch_size=bench_args.max_batch_size,
         ),
         runner=model_runner,
-        output_dir=Path(output_dir),
+        output_dir=Path(bench_args.output_dir),
         prefix="decode",
     )
     profiling.run()
@@ -203,7 +204,6 @@ def prefill_latency_test_with_prefix_cache(
         set_gpu_proc_affinity(server_args.tp_size, server_args.nnodes, tp_rank)
     configure_logger(server_args, prefix=f" TP{tp_rank}")
     model_runner, tokenizer = load_model(server_args, port_args, tp_rank)
-    output_dir = "profiling_results"
     profiling = ForwardProfiler(
         strategy=PrefillCacheStrategy(
             batch_sizes=[1, 2, 4, 8, 16, 32, 48, 64, 72, 84, 128],
@@ -228,12 +228,13 @@ def prefill_latency_test_with_prefix_cache(
             skews=[0.0, 0.5, 1.0, 1.5],
             cache_percents=[0, 0.25, 0.5, 0.75],
             chunked_flags=[False],
-            max_prefill_batch_size=bench_args.input_len[0],
+            max_prefill_token_len=bench_args.max_input_len,
+            max_batch_size=bench_args.max_batch_size,
         ),
         runner=model_runner,
-        output_dir=Path(output_dir),
+        output_dir=Path(bench_args.output_dir),
         prefix="prefill_with_prefix_caching",
-    )
+     )
     profiling.run()
 
     profiling = ForwardProfiler(
@@ -260,10 +261,12 @@ def prefill_latency_test_with_prefix_cache(
             skews=[0.0, 0.5, 1.0, 1.5],
             cache_percents=[0.05, 0.5, 0.95],
             chunked_flags=[True],
-            max_prefill_batch_size=bench_args.input_len[0],
+            max_prefill_token_len=bench_args.max_input_len,
+            max_batch_size=bench_args.max_batch_size,
+
         ),
         runner=model_runner,
-        output_dir=Path(output_dir),
+        output_dir=Path(bench_args.output_dir),
         prefix="prefill_profiling_chunked_cache_prefix_caching",
     )
     profiling.run()

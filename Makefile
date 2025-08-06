@@ -1,4 +1,4 @@
-.PHONY: clean build test-upload upload install dev-install help
+.PHONY: clean build test-upload upload install dev-install test test-minimal help
 
 # Variables
 PACKAGE_NAME = llm_execution_time_predictor
@@ -41,6 +41,64 @@ dev-install: ## Install package in development mode
 
 check: ## Check package metadata and description
 	twine check $(DIST_DIR)*
+
+test: test-minimal ## Run all tests
+
+test-minimal: ## Ultra-minimal end-to-end test for all modes (< 60 seconds)
+# 	@echo "Running ultra-minimal end-to-end test..."
+	@mkdir -p test_output
+	@echo "1. CLI smoke test..."
+	@python -m llm_execution_time_predictor.llm_forward_predictor_cli --help > /dev/null && echo "✓ CLI works" || (echo "✗ CLI failed" && exit 1)
+	
+	@echo "2. Test prefill profiling..."
+	@python -m llm_execution_time_predictor.llm_forward_predictor_cli profile prefill \
+		--model-path Qwen/Qwen3-4B \
+		--load-format dummy \
+		--batch-size 1 \
+		--input-len 64 \
+		--max-batch-size 1 \
+		--max-input-len 64 \
+		--output-dir test_output
+	@test -s test_output/prefill_prefill_profiling_tp0.jsonl && echo "✓ Prefill output generated" || (echo "✗ Prefill failed" && exit 1)
+	@head -1 test_output/prefill_prefill_profiling_tp0.jsonl | python -c "import json,sys; json.load(sys.stdin); print('✓ Prefill JSON valid')" 2>/dev/null || (echo "✗ Prefill JSON invalid" && exit 1)
+	
+	@echo "3. Test prefill with cache profiling..."
+	@python -m llm_execution_time_predictor.llm_forward_predictor_cli profile prefill-prefix-cache \
+		--model-path Qwen/Qwen3-4B \
+		--load-format dummy \
+		--batch-size 1 \
+		--input-len 64 \
+		--max-batch-size 1 \
+		--max-input-len 64 \
+		--output-dir test_output
+	@test -s test_output/prefill_profiling_chunked_cache_prefix_caching_prefill_cache_profiling_tp0.jsonl && echo "✓ Prefill-cache output generated" || (echo "✗ Prefill-cache failed" && exit 1)
+	@head -1 test_output/prefill_profiling_chunked_cache_prefix_caching_prefill_cache_profiling_tp0.jsonl | python -c "import json,sys; json.load(sys.stdin); print('✓ Prefill-cache JSON valid')" 2>/dev/null || (echo "✗ Prefill-cache JSON invalid" && exit 1)
+	
+	@echo "4. Test decode profiling..."
+	@python -m llm_execution_time_predictor.llm_forward_predictor_cli profile decode \
+		--model-path Qwen/Qwen3-4B \
+		--load-format dummy \
+		--batch-size 1 \
+		--input-len 64 \
+		--max-batch-size 1 \
+		--max-input-len 64 \
+		--output-dir test_output
+	@test -s test_output/decode_decode_profiling_tp0.jsonl && echo "✓ Decode output generated" || (echo "✗ Decode failed" && exit 1)
+	@head -1 test_output/decode_decode_profiling_tp0.jsonl | python -c "import json,sys; json.load(sys.stdin); print('✓ Decode JSON valid')" 2>/dev/null || (echo "✗ Decode JSON invalid" && exit 1)
+	
+	@echo "5. Test real workload profiling..."
+	@python -m llm_execution_time_predictor.llm_forward_predictor_cli profile_real \
+		--model Qwen/Qwen3-4B \
+		--output_file test_output/test_real.jsonl \
+		--max_job_send_time 1 \
+		--max_rps 2 \
+		--data_file llm_execution_time_predictor/monkey_patch_sglang/data/splitwise_code.csv
+	@test -s test_output/test_real.jsonl && echo "✓ Real workload output generated" || (echo "✗ Real workload failed" && exit 1)
+	@head -1 test_output/test_real.jsonl | python -c "import json,sys; json.load(sys.stdin); print('✓ Real workload JSON valid')" 2>/dev/null || (echo "✗ Real workload JSON invalid" && exit 1)
+	
+	@echo "6. Cleanup..."
+	@rm -rf test_output/
+	@echo "✓ All 4 modes tested successfully!"
 
 # Full workflow targets
 test-release: clean build test-install test-upload ## Full test release workflow

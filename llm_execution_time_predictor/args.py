@@ -24,6 +24,9 @@ class BenchArgs:
     chunk_prefill: bool = False
     chunk_size: int = 512
     skew: str = "none"
+    output_dir: str = "profiling_results"
+    max_batch_size: int = 256
+    max_input_len: int = 16384
 
     @staticmethod
     def add_cli_args(parser: argparse.ArgumentParser) -> None:
@@ -94,6 +97,24 @@ class BenchArgs:
             "--run-prefill-profiling-with-prefix-cache",
             action="store_true",
             help="Run prefill profiling with prefix cache.",
+        )
+        parser.add_argument(
+            "--output-dir",
+            type=str,
+            default=BenchArgs.output_dir,
+            help="Output directory for profiling results.",
+        )
+        parser.add_argument(
+            "--max-batch-size",
+            type=int,
+            default=BenchArgs.max_batch_size,
+            help="Maximum batch size for profiling.",
+        )
+        parser.add_argument(
+            "--max-input-len",
+            type=int,
+            default=BenchArgs.max_input_len,
+            help="Maximum input length for profiling.",
         )
 
     @classmethod

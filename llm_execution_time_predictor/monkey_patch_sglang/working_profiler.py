@@ -102,7 +102,7 @@ if os.environ.get("SGLANG_ENABLE_PROFILING") == "1":
                         "timestamp": start,
                         "process_id": os.getpid(),
                         "batch_size": getattr(batch, "batch_size", 0),
-                        "total_seq_lens": total_seq_lens,  # Total sequence lengths (cached + new)
+                        "combined_seq_lens": total_seq_lens,  # Total sequence lengths (cached + new)
                         "cached_prefix_lens": prefix_lens,  # Length of cached prefix portion
                         "new_extend_lens": extend_seq_lens,  # Length of new tokens being added
                         "total_token_length": sum(total_seq_lens)
