@@ -125,7 +125,7 @@ class BenchArgs:
             if hasattr(args, field.name):
                 value = getattr(args, field.name)
                 # Handle special cases where type conversion might fail
-                if field.name in ['batch_size', 'input_len', 'output_len']:
+                if field.name in ["batch_size", "input_len", "output_len"]:
                     # These should be tuples, convert list to tuple if needed
                     if isinstance(value, list):
                         kwargs[field.name] = tuple(value)
@@ -133,7 +133,7 @@ class BenchArgs:
                         kwargs[field.name] = value
                     else:
                         kwargs[field.name] = (value,)
-                elif field.name == 'batch_composition' and value is None:
+                elif field.name == "batch_composition" and value is None:
                     kwargs[field.name] = []
                 else:
                     # For simple types, use direct assignment

@@ -156,7 +156,7 @@ def decode_latency_test(
         set_gpu_proc_affinity(server_args.tp_size, server_args.nnodes, tp_rank)
     configure_logger(server_args, prefix=f" TP{tp_rank}")
     model_runner, tokenizer = load_model(server_args, port_args, tp_rank)
-    max_token_length = bench_args.max_input_len 
+    max_token_length = bench_args.max_input_len
     profiling = ForwardProfiler(
         strategy=DecodeStrategy(
             batch_sizes=[1, 2, 4, 8, 16, 32, 48, 64, 72, 84, 128],
@@ -234,7 +234,7 @@ def prefill_latency_test_with_prefix_cache(
         runner=model_runner,
         output_dir=Path(bench_args.output_dir),
         prefix="prefill_with_prefix_caching",
-     )
+    )
     profiling.run()
 
     profiling = ForwardProfiler(
@@ -263,7 +263,6 @@ def prefill_latency_test_with_prefix_cache(
             chunked_flags=[True],
             max_prefill_token_len=bench_args.max_input_len,
             max_batch_size=bench_args.max_batch_size,
-
         ),
         runner=model_runner,
         output_dir=Path(bench_args.output_dir),
@@ -283,7 +282,9 @@ def correctness_test(
 ) -> None:
     # Configure the logger
     configure_logger(server_args, prefix=f" TP{tp_rank}")
-    rank_print: Callable[..., Any] = print if tp_rank == 0 else lambda *args, **kwargs: None
+    rank_print: Callable[..., Any] = (
+        print if tp_rank == 0 else lambda *args, **kwargs: None
+    )
 
     # Load the model
     model_runner, tokenizer = load_model(server_args, port_args, tp_rank)
@@ -443,7 +444,9 @@ def latency_test(server_args, port_args, bench_args, tp_rank, disable_rank_print
     if disable_rank_print:
         rank_print: Callable[..., Any] = lambda *args, **kwargs: None
     else:
-        rank_print: Callable[..., Any] = print if tp_rank == 0 else lambda *args, **kwargs: None
+        rank_print: Callable[..., Any] = (
+            print if tp_rank == 0 else lambda *args, **kwargs: None
+        )
 
     # Load the model
     model_runner, tokenizer = load_model(server_args, port_args, tp_rank)
@@ -570,7 +573,7 @@ def parse_cli_args_main() -> Tuple[Any, BenchArgs]:
     finally:
         if server_args.tp_size != 1:
             kill_process_tree(os.getpid(), include_parent=False)
-    
+
     return server_args, bench_args
 
 
