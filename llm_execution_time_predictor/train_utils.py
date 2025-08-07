@@ -4,11 +4,12 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.ensemble import RandomForestRegressor
 import pandas as pd
 import json
+from typing import List, cast
 
 
 def preprocess_input_for_prediction(
     batch_size, avg_context_len, gpu, mode="prefill"
-) -> float:
+) -> List[float]:
     if mode == "prefill":
         num_new_tokens = batch_size * avg_context_len
         prod_ext_ctx = batch_size * (avg_context_len**2)

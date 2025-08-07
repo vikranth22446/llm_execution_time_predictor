@@ -68,6 +68,9 @@ def profile_real(args):
     if args.output_file:
         cmd.extend(["--output_file", args.output_file])
 
+    if args.max_window_time:
+        cmd.extend(["--max_window_time", str(args.max_window_time)])
+
     print(f"Running: {' '.join(cmd)}")
     print(
         f"Environment: SGLANG_PROFILE_OUTPUT={env.get('SGLANG_PROFILE_OUTPUT', 'Not set')}"
@@ -149,6 +152,12 @@ def main():
     )
     real_parser.add_argument(
         "--rps_scale", type=float, default=1.0, help="RPS scaling factor"
+    )
+    real_parser.add_argument(
+        "--max_window_time",
+        type=int,
+        default=300,
+        help="Maximum window time in seconds",
     )
 
     args = parser.parse_args()

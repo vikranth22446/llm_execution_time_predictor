@@ -37,7 +37,7 @@ async def data_generator(data_file, max_rps, rps_scale=1.0):
     for index, row in df.iterrows():
         interarrval_time: float = row["time_inter_arrival"]
         interarrval_time = (
-            max(interarrval_time, 1.0 / max_rps) if max_rps > 0 else interarrval_time
+            min(interarrval_time, 1.0 / max_rps) if max_rps > 0 else interarrval_time
         )
         await asyncio.sleep(interarrval_time)
         yield {
@@ -47,7 +47,9 @@ async def data_generator(data_file, max_rps, rps_scale=1.0):
         }
 
 
-async def launch_jobs(engine, data_file, max_job_send_time, max_rps, rps_scale=1.0):
+async def launch_jobs(
+    engine, data_file, max_job_send_time, max_rps, rps_scale=1.0, max_window_time=None
+):
     avg_rps = 0.0
     num_jobs = 0
     start_time = asyncio.get_event_loop().time()
@@ -74,12 +76,26 @@ async def launch_jobs(engine, data_file, max_job_send_time, max_rps, rps_scale=1
         )
         if elapsed_time >= max_job_send_time:
             break
-    await tqdm_asyncio.gather(*tasks)
+
+    # Cancel all tasks after max_window_time if specified
+    if max_window_time:
+        try:
+            await asyncio.wait_for(tqdm_asyncio.gather(*tasks), timeout=max_window_time)
+        except asyncio.TimeoutError:
+            print(f"Cancelling {len(tasks)} tasks after {max_window_time}s timeout")
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+    else:
+        await tqdm_asyncio.gather(*tasks)
+
     print(f"Average RPS: {avg_rps:.2f}, Total Jobs: {num_jobs}")
     # Move The Temp file to custom dir
 
 
-async def main(model, data_file, max_job_send_time, max_rps, rps_scale):
+async def main(
+    model, data_file, max_job_send_time, max_rps, rps_scale, max_window_time=None
+):
     engine = sgl.Engine(model_path=model)
     await asyncio.create_task(
         launch_jobs(
@@ -88,6 +104,7 @@ async def main(model, data_file, max_job_send_time, max_rps, rps_scale):
             max_job_send_time=max_job_send_time,
             max_rps=max_rps,
             rps_scale=rps_scale,
+            max_window_time=max_window_time,
         )
     )
 
@@ -102,6 +119,12 @@ if __name__ == "__main__":
     parser.add_argument("--rps_scale", type=float, default=1.0)
     parser.add_argument("--data_file", type=str, default="data/splitwise_code.csv")
     parser.add_argument("--output_file", type=str, default=random_filepath)
+    parser.add_argument(
+        "--max_window_time",
+        type=int,
+        default=None,
+        help="Maximum time (seconds) to wait for all jobs to complete before cancelling",
+    )
     args = parser.parse_args()
     asyncio.run(
         main(
@@ -110,5 +133,6 @@ if __name__ == "__main__":
             args.max_job_send_time,
             args.max_rps,
             args.rps_scale,
+            args.max_window_time,
         )
     )

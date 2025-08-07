@@ -16,7 +16,7 @@ from llm_execution_time_predictor.profiling_utils import (
     run_prefill_in_chunks_to_load_cache,
     run_decoding_config,
     filter_token_lengths,
-    create_profiling_result_dic
+    create_profiling_result_dic,
 )
 
 logger = logging.getLogger(__name__)
@@ -102,7 +102,7 @@ class PrefillStrategy(ProfilingStrategy):
         token_lengths: Iterable[int],
         skews: Iterable[float],
         max_prefill_token_len: Optional[int] = None,
-        max_batch_size: Optional[int] = None
+        max_batch_size: Optional[int] = None,
     ):
         self.batch_sizes = list(batch_sizes)
         self.token_lengths = list(token_lengths)
@@ -133,7 +133,7 @@ class PrefillStrategy(ProfilingStrategy):
             new_extend_lens=skewed,
             latency=latency,
             throughput=throughput,
-            forward_mode="prefill"
+            forward_mode="prefill",
         )
 
     def output_filename(self, prefix: str, tp_rank: int) -> str:
@@ -153,7 +153,7 @@ class PrefillCacheStrategy(ProfilingStrategy):
         cache_percents: Iterable[float],
         chunked_flags: Iterable[bool],
         max_prefill_token_len: Optional[int] = None,
-        max_batch_size: Optional[int] = None
+        max_batch_size: Optional[int] = None,
     ):
         self.batch_sizes = list(batch_sizes)
         self.token_lengths = list(token_lengths)
@@ -178,15 +178,20 @@ class PrefillCacheStrategy(ProfilingStrategy):
         )
 
     def run_one(self, runner: Any, cfg: PrefillCacheConfig) -> Dict[str, Any]:
-        skewed, prefixed_cached_lengths = generate_distribution_skewed_batch_with_prefix_cache(
-            cfg.token_length,
-            cfg.batch_size,
-            cfg.skew,
-            prefix_cache_percent=cfg.cache_percent,
-            chunked_prefill_distribution=cfg.chunked,
+        skewed, prefixed_cached_lengths = (
+            generate_distribution_skewed_batch_with_prefix_cache(
+                cfg.token_length,
+                cfg.batch_size,
+                cfg.skew,
+                prefix_cache_percent=cfg.cache_percent,
+                chunked_prefill_distribution=cfg.chunked,
+            )
         )
         latency, throughput, _ = run_prefill_config(
-            runner, skewed, prefix_cached_lengths=prefixed_cached_lengths, chunk_prefill_size=16384
+            runner,
+            skewed,
+            prefix_cached_lengths=prefixed_cached_lengths,
+            chunk_prefill_size=16384,
         )
         return create_profiling_result_dic(
             batch_size=cfg.batch_size,
@@ -194,14 +199,15 @@ class PrefillCacheStrategy(ProfilingStrategy):
             skew=cfg.skew,
             combined_seq_lens=skewed,
             cached_prefix_lens=prefixed_cached_lengths,
-            new_extend_lens=[skewed[i] - prefixed_cached_lengths[i] for i in range(cfg.batch_size)],
+            new_extend_lens=[
+                skewed[i] - prefixed_cached_lengths[i] for i in range(cfg.batch_size)
+            ],
             latency=latency,
             throughput=throughput,
             forward_mode="prefill",
             cache_percent=cfg.cache_percent,
-            chunked=cfg.chunked
+            chunked=cfg.chunked,
         )
-
 
     def output_filename(self, prefix: str, tp_rank: int) -> str:
         return f"{prefix}_prefill_cache_profiling_tp{tp_rank}.jsonl"
@@ -218,7 +224,7 @@ class DecodeStrategy(ProfilingStrategy):
         token_lengths: Iterable[int],
         skews: Iterable[float],
         max_tokens_limit: Optional[int] = None,
-        max_batch_size: Optional[int] = None
+        max_batch_size: Optional[int] = None,
     ):
         self.batch_sizes = list(batch_sizes)
         self.token_lengths = list(token_lengths)
@@ -246,19 +252,24 @@ class DecodeStrategy(ProfilingStrategy):
         return run_prefill_in_chunks_to_load_cache(runner, skewed, reqs), skewed
 
     def run_one(self, runner: Any, cfg: DecodeConfig) -> Dict[str, Any]:
-        (batch,next_ids), skewed_lens = self._prepare_cache(runner, cfg)
-        latency, throughput = run_decoding_config(runner, torch.tensor(next_ids, device=runner.device), batch)
-        return create_profiling_result_dic(
+        (batch, next_ids), skewed_lens = self._prepare_cache(runner, cfg)
+        latency, throughput = run_decoding_config(
+            runner, torch.tensor(next_ids, device=runner.device), batch
+        )
+        profiling_results = create_profiling_result_dic(
             batch_size=cfg.batch_size,
             total_token_length=cfg.token_length,
             skew=cfg.skew,
             combined_seq_lens=skewed_lens,
             cached_prefix_lens=skewed_lens,
-            new_extend_lens=[1] * cfg.batch_size,  # Decoding one token
+            new_extend_lens=[1] * cfg.batch_size,
             latency=latency,
             throughput=throughput,
-            forward_mode="decode"
+            forward_mode="decode",
         )
+        runner.req_to_token_pool.clear()
+        runner.token_to_kv_pool_allocator.clear()
+        return profiling_results
 
     def output_filename(self, prefix: str, tp_rank: int) -> str:
         return f"{prefix}_decode_profiling_tp{tp_rank}.jsonl"

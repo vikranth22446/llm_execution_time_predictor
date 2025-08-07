@@ -92,6 +92,7 @@ test-minimal:
 		--output_file test_output/test_real.jsonl \
 		--max_job_send_time 1 \
 		--max_rps 2 \
+		--max_window_time 10 \
 		--data_file llm_execution_time_predictor/monkey_patch_sglang/data/splitwise_code.csv
 	@test -s test_output/test_real.jsonl && echo "✓ Real workload output generated" || (echo "✗ Real workload failed" && exit 1)
 	@head -1 test_output/test_real.jsonl | python -c "import json,sys; json.load(sys.stdin); print('✓ Real workload JSON valid')" 2>/dev/null || (echo "✗ Real workload JSON invalid" && exit 1)
@@ -113,10 +114,17 @@ test-profile:
 test-profile-model:
 	@if [ -z "$(MODEL_PATH)" ]; then echo "MODEL_PATH is required. Usage: make test-profile-model MODEL_PATH=path/to/model"; exit 1; fi
 	@echo "Testing profiling with $(MODEL_PATH)..."
-# 	@echo "1. Profile prefill..."
-# 	python llm_execution_time_predictor/llm_forward_predictor_cli.py profile prefill --model-path $(MODEL_PATH) --load-format dummy
-# 	@echo "2. Profile decode..."
-# 	python llm_execution_time_predictor/llm_forward_predictor_cli.py profile decode --model-path $(MODEL_PATH) --max-decode-token-length 512 --load-format dummy
-	@echo "3. Profile real workload..."
-	python llm_execution_time_predictor/llm_forward_predictor_cli.py profile_real --model $(MODEL_PATH) --output_file test_profile_results.jsonl --max_job_send_time 5 --max_rps 5 --data_file llm_execution_time_predictor/monkey_patch_sglang/data/splitwise_code.csv
+	@mkdir -p profile_output
+	@echo "1. Profile prefill..."
+	python3 -m llm_execution_time_predictor.llm_forward_predictor_cli profile prefill --model-path $(MODEL_PATH) --load-format dummy --output-dir profile_output
+	@echo "2. Profile prefill with cache..."
+	python3 -m llm_execution_time_predictor.llm_forward_predictor_cli profile prefill-prefix-cache --model-path $(MODEL_PATH) --load-format dummy --output-dir profile_output
+	@echo "3. Profile decode..."
+	python3 -m llm_execution_time_predictor.llm_forward_predictor_cli profile decode --model-path $(MODEL_PATH) --load-format dummy --output-dir profile_output
+	@echo "4. Profile real workload Splitwise Code RPS=5..."
+	python3 -m llm_execution_time_predictor.llm_forward_predictor_cli profile_real --model $(MODEL_PATH) --output_file profile_output/splitwise_code_rps_5.jsonl --max_job_send_time 60 --max_rps 5 --max_window_time 300 --data_file llm_execution_time_predictor/monkey_patch_sglang/data/splitwise_code.csv
+	@echo "4. Profile real workload Splitwise Code RPS=10..."
+	python3 -m llm_execution_time_predictor.llm_forward_predictor_cli profile_real --model $(MODEL_PATH) --output_file profile_output/splitwise_code_rps_10.jsonl --max_job_send_time 60 --max_rps 10 --max_window_time 300 --data_file llm_execution_time_predictor/monkey_patch_sglang/data/splitwise_code.csv
+	@echo "4. Profile real workload Arxiv Summarization RPS=3..."
+	python3 -m llm_execution_time_predictor.llm_forward_predictor_cli profile_real --model $(MODEL_PATH) --output_file profile_output/arxiv_summarization_rps_3.jsonl --max_job_send_time 60 --max_rps 3 --max_window_time 300 --data_file llm_execution_time_predictor/monkey_patch_sglang/data/arxiv_summarization_stats_llama2_tokenizer_filtered_v2.csv
 	@echo "Profile testing completed!"

@@ -1,7 +1,7 @@
 import numpy as np
 import json
 import torch
-from typing import List, Optional, Tuple, Any, Union
+from typing import List, Optional, Tuple, Any, Union, Callable
 from sglang.srt.managers.schedule_batch import Req, ScheduleBatch
 from sglang.srt.managers.scheduler import Scheduler
 from sglang.srt.model_executor.forward_batch_info import ForwardBatch
@@ -189,9 +189,14 @@ def run_prefill_config(
         if len(reqs_non_zero) != 0:
             for i, req in enumerate(reqs_non_zero):
                 req.extend_input_len = prefix_cached_lengths[i]
-                req.fill_ids = req.fill_ids[: len(req.prefix_indices) + req.extend_input_len]
+                req.fill_ids = req.fill_ids[
+                    : len(req.prefix_indices) + req.extend_input_len
+                ]
             run_prefill_in_chunks_to_load_cache(
-                model_runner, prefix_cached_lengths[: len(reqs_non_zero)], reqs_non_zero, chunk_size=chunk_prefill_size
+                model_runner,
+                prefix_cached_lengths[: len(reqs_non_zero)],
+                reqs_non_zero,
+                chunk_size=chunk_prefill_size,
             )
     synchronize(model_runner.device)
     start_time = time.perf_counter()
@@ -203,13 +208,13 @@ def run_prefill_config(
     if not clear_cache:
         for req in reqs:
             if len(req.fill_ids) != 0:
-                # Filled length 
+                # Filled length
                 cached_length = len(req.fill_ids)
-                req.fill_ids = req.origin_input_ids + req.output_ids  
-                req.prefix_indices = model_runner.req_to_token_pool.req_to_token[  
-                    req.req_pool_idx, : len(req.prefix_indices) + cached_length  
-                ]  
-                req.extend_input_len = len(req.fill_ids) - len(req.prefix_indices)  
+                req.fill_ids = req.origin_input_ids + req.output_ids
+                req.prefix_indices = model_runner.req_to_token_pool.req_to_token[
+                    req.req_pool_idx, : len(req.prefix_indices) + cached_length
+                ]
+                req.extend_input_len = len(req.fill_ids) - len(req.prefix_indices)
                 req.logprob_start_len = len(req.origin_input_ids) - 1
 
     total_tokens = sum(skewed_batch_lens)
@@ -338,7 +343,7 @@ def generate_distribution_skewed_batch_with_prefix_cache(
     return skewed_lengths, remaining_prefix_lengths
 
 
-def get_rank_print(model_runner: ModelRunner):
+def get_rank_print(model_runner: ModelRunner) -> Callable[..., Any]:
     return print if model_runner.tp_rank == 0 else lambda *args, **kwargs: None
 
 
@@ -354,7 +359,9 @@ def filter_token_lengths(lengths: List[int], max_length: int) -> List[int]:
 
 def load_model(server_args, port_args, tp_rank: int) -> Tuple[ModelRunner, Any]:
     suppress_other_loggers()
-    rank_print = print if tp_rank == 0 else lambda *args, **kwargs: None
+    rank_print: Callable[..., Any] = (
+        print if tp_rank == 0 else lambda *args, **kwargs: None
+    )
 
     model_config = ModelConfig.from_server_args(server_args)
     model_runner = ModelRunner(
@@ -378,6 +385,7 @@ def load_model(server_args, port_args, tp_rank: int) -> Tuple[ModelRunner, Any]:
         dist.barrier()
     return model_runner, tokenizer
 
+
 def create_profiling_result_dic(
     batch_size: int,
     total_token_length: int,
@@ -388,7 +396,7 @@ def create_profiling_result_dic(
     latency: float,
     throughput: float,
     forward_mode: str,
-    **optional_fields
+    **optional_fields,
 ) -> dict:
     result = {
         "batch_size": batch_size,
