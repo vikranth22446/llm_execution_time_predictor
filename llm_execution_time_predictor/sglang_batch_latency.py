@@ -130,9 +130,12 @@ def prefill_latency_test(
                 512,
                 1024,
                 2048,
+                3072,
                 4096,
+                6048,
                 8192,
                 10240,
+                13000,
                 16384,
             ],
             skews=[0, 0.5, 1.0, 1.5],
@@ -174,6 +177,7 @@ def decode_latency_test(
                 1024,
                 2048,
                 4096,
+                6048,
                 8192,
                 10240,
                 16384,
@@ -220,9 +224,12 @@ def prefill_latency_test_with_prefix_cache(
                 512,
                 1024,
                 2048,
+                3072,
                 4096,
+                6048,
                 8192,
                 10240,
+                13000,
                 16384,
             ],
             skews=[0.0, 0.5, 1.0, 1.5],
@@ -253,7 +260,9 @@ def prefill_latency_test_with_prefix_cache(
                 512,
                 1024,
                 2048,
+                3072,
                 4096,
+                6048,
                 8192,
                 10240,
                 16384,
@@ -511,6 +520,14 @@ def latency_test(server_args, port_args, bench_args, tp_rank, disable_rank_print
 
 def main(server_args: Any, bench_args: BenchArgs) -> None:
     server_args.cuda_graph_max_bs = max(bench_args.batch_size)
+
+    # Create output directory structure with Model_name_TP_{} pattern
+    if bench_args.output_dir:
+        model_name = server_args.model_path.replace("/", "_").replace("-", "_")
+        subfolder_name = f"{model_name}_TP_{server_args.tp_size}"
+        output_path = os.path.join(bench_args.output_dir, subfolder_name)
+        os.makedirs(output_path, exist_ok=True)
+        bench_args.output_dir = output_path
 
     _set_envs_and_config(server_args)
 

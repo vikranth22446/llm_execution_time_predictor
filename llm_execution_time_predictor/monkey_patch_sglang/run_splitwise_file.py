@@ -30,20 +30,24 @@ import working_profiler  # This import will trigger the monkey patching
 
 async def data_generator(data_file, max_rps, rps_scale=1.0):
     df = pd.read_csv(data_file)
-    # Filter the start of the dataset
-    df["timestamp_filtered"] = df[df["arrived_at"] > 300]["arrived_at"].astype(float)
-
-    df["time_inter_arrival"] = df["timestamp_filtered"].diff().astype(float)
+    arrivated_timestamps_availabe = False
+    if "arrivated_at" in df.columns:
+        arrivated_timestamps_availabe = True
+        df["timestamp_filtered"] = df[df["arrived_at"] > 300]["arrived_at"].astype(float)
+        df["time_inter_arrival"] = df["timestamp_filtered"].diff().astype(float)
     for index, row in df.iterrows():
-        interarrval_time: float = row["time_inter_arrival"]
-        interarrval_time = (
-            min(interarrval_time, 1.0 / max_rps) if max_rps > 0 else interarrval_time
-        )
+        if arrivated_timestamps_availabe:
+            interarrval_time: float = row["time_inter_arrival"]
+            interarrval_time = (
+                min(interarrval_time, 1.0 / max_rps) if max_rps > 0 else interarrval_time
+            ) * rps_scale
+        else:
+            interarrval_time = 1.0 / max_rps if max_rps > 0 else 0.0
+            interarrval_time *= rps_scale
         await asyncio.sleep(interarrval_time)
         yield {
             "prefill": int(row["num_prefill_tokens"]),
             "decode": int(row["num_decode_tokens"]),
-            "time_inter_arrival": row["time_inter_arrival"],
         }
 
 
@@ -77,7 +81,6 @@ async def launch_jobs(
         if elapsed_time >= max_job_send_time:
             break
 
-    # Cancel all tasks after max_window_time if specified
     if max_window_time:
         try:
             await asyncio.wait_for(tqdm_asyncio.gather(*tasks), timeout=max_window_time)
@@ -94,9 +97,9 @@ async def launch_jobs(
 
 
 async def main(
-    model, data_file, max_job_send_time, max_rps, rps_scale, max_window_time=None
+    model, data_file, max_job_send_time, max_rps, rps_scale, max_window_time=None, tp_size=1
 ):
-    engine = sgl.Engine(model_path=model)
+    engine = sgl.Engine(model_path=model, tp_size=tp_size)
     await asyncio.create_task(
         launch_jobs(
             engine,
@@ -125,6 +128,7 @@ if __name__ == "__main__":
         default=None,
         help="Maximum time (seconds) to wait for all jobs to complete before cancelling",
     )
+    parser.add_argument("--tp_size", type=int, default=1, help="Tensor parallelism size")
     args = parser.parse_args()
     asyncio.run(
         main(
@@ -134,5 +138,6 @@ if __name__ == "__main__":
             args.max_rps,
             args.rps_scale,
             args.max_window_time,
+            args.tp_size,
         )
     )
