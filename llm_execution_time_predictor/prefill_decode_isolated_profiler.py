@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, Iterable, Optional
 import torch
 from tqdm import tqdm
+from itertools import chain
+
 from llm_execution_time_predictor.profiling_utils import (
     write_results_to_file,
     generate_distribution_of_skewed_batch,
@@ -113,7 +115,6 @@ class PrefillStrategy(ProfilingStrategy):
         )
         if max_batch_size is not None:
             self.batch_sizes = [bs for bs in self.batch_sizes if bs <= max_batch_size]
-
     def generate_configs(self) -> Iterator[PrefillConfig]:
         return _config_product(
             PrefillConfig, self.batch_sizes, self.token_lengths, self.skews
@@ -154,6 +155,8 @@ class PrefillCacheStrategy(ProfilingStrategy):
         chunked_flags: Iterable[bool],
         max_prefill_token_len: Optional[int] = None,
         max_batch_size: Optional[int] = None,
+        num_repeats: int = 2,
+        rerun_low_batch_sizes: bool = False,
     ):
         self.batch_sizes = list(batch_sizes)
         self.token_lengths = list(token_lengths)
@@ -166,9 +169,10 @@ class PrefillCacheStrategy(ProfilingStrategy):
         )
         if max_batch_size is not None:
             self.batch_sizes = [bs for bs in self.batch_sizes if bs <= max_batch_size]
-
+        self.num_repeats = max(1, int(num_repeats))
+        self.rerun_low_batch_sizes = rerun_low_batch_sizes
     def generate_configs(self) -> Iterator[PrefillCacheConfig]:
-        return _config_product(
+        configs = _config_product(
             PrefillCacheConfig,
             self.batch_sizes,
             self.token_lengths,
@@ -176,7 +180,24 @@ class PrefillCacheStrategy(ProfilingStrategy):
             self.cache_percents,
             self.chunked_flags,
         )
-
+        extra_configs = []
+    
+        # Re-run very low token lengths to get more stable results for prefill
+        for _ in range(self.num_repeats):
+            for bs in [1, 2, 4, 8, 12, 16, 24, 32, 48, 64, 128]:    
+                for token_length in [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096]:
+                    if token_length < bs:
+                        continue
+                    skew = 0.0
+                    extra_configs.append(PrefillCacheConfig(
+                        batch_size=bs,
+                        token_length=token_length,
+                        skew=skew,
+                        cache_percent=0.0,
+                        chunked=False,
+                    ))
+        return chain(configs, extra_configs)
+    
     def run_one(self, runner: Any, cfg: PrefillCacheConfig) -> Dict[str, Any]:
         skewed, prefixed_cached_lengths = (
             generate_distribution_skewed_batch_with_prefix_cache(
@@ -225,6 +246,8 @@ class DecodeStrategy(ProfilingStrategy):
         skews: Iterable[float],
         max_tokens_limit: Optional[int] = None,
         max_batch_size: Optional[int] = None,
+        num_repeats: int = 2,
+        rerun_low_batch_sizes: bool = False,
     ):
         self.batch_sizes = list(batch_sizes)
         self.token_lengths = list(token_lengths)
@@ -232,11 +255,27 @@ class DecodeStrategy(ProfilingStrategy):
         self.token_lengths = filter_token_lengths(token_lengths, max_tokens_limit)
         if max_batch_size is not None:
             self.batch_sizes = [bs for bs in self.batch_sizes if bs <= max_batch_size]
-
+        self.num_repeats = max(1, int(num_repeats))
+        self.rerun_low_batch_sizes = rerun_low_batch_sizes
     def generate_configs(self) -> Iterator[DecodeConfig]:
-        return _config_product(
+        configs = _config_product(
             DecodeConfig, self.batch_sizes, self.token_lengths, self.skews
         )
+        # Add small batch sizes and configs multiple times with 0 skew
+        # Noticed that small batch sizes are less stable. Especially in small models like deepseek 1.5B
+        extra_configs = []
+        for _ in range(self.num_repeats):
+            for bs in [1, 2, 4, 8, 12, 16, 24, 32, 48, 64, 128]:
+                for token_length in [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096]:
+                    if token_length < bs:
+                        continue
+                    skew = 0.0
+                    extra_configs.append(DecodeConfig(
+                        batch_size=bs,
+                        token_length=token_length,
+                        skew=skew,
+                    ))
+        return chain(configs, extra_configs)
 
     def _prepare_cache(self, runner: Any, cfg: DecodeConfig) -> tuple[Any, Any]:
         skewed, prefix_cache = generate_distribution_skewed_batch_with_prefix_cache(

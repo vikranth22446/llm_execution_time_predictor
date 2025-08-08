@@ -109,22 +109,22 @@ release: clean build test-install check upload ## Full production release workfl
 	@echo "Production release complete! Check https://pypi.org/project/$(PACKAGE_NAME)/"
 
 test-profile:
-	$(MAKE) test-profile-model MODEL_PATH=Qwen/Qwen3-4B
+	$(MAKE) test-profile-model MODEL_PATH=deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B TP=1
 
 test-profile-model:
 	@if [ -z "$(MODEL_PATH)" ]; then echo "MODEL_PATH is required. Usage: make test-profile-model MODEL_PATH=path/to/model"; exit 1; fi
 	@echo "Testing profiling with $(MODEL_PATH)..."
-	@mkdir -p profile_output
+	# @mkdir -p profile_output
 	@echo "1. Profile prefill..."
-	python3 -m llm_execution_time_predictor.llm_forward_predictor_cli profile prefill --model-path $(MODEL_PATH) --load-format dummy --output-dir profile_output
-	@echo "2. Profile prefill with cache..."
-	python3 -m llm_execution_time_predictor.llm_forward_predictor_cli profile prefill-prefix-cache --model-path $(MODEL_PATH) --load-format dummy --output-dir profile_output
-	@echo "3. Profile decode..."
-	python3 -m llm_execution_time_predictor.llm_forward_predictor_cli profile decode --model-path $(MODEL_PATH) --load-format dummy --output-dir profile_output
-	@echo "4. Profile real workload Splitwise Code RPS=5..."
-	python3 -m llm_execution_time_predictor.llm_forward_predictor_cli profile_real --model $(MODEL_PATH) --output_file profile_output/splitwise_code_rps_5.jsonl --max_job_send_time 60 --max_rps 5 --max_window_time 300 --data_file llm_execution_time_predictor/monkey_patch_sglang/data/splitwise_code.csv
-	@echo "4. Profile real workload Splitwise Code RPS=10..."
-	python3 -m llm_execution_time_predictor.llm_forward_predictor_cli profile_real --model $(MODEL_PATH) --output_file profile_output/splitwise_code_rps_10.jsonl --max_job_send_time 60 --max_rps 10 --max_window_time 300 --data_file llm_execution_time_predictor/monkey_patch_sglang/data/splitwise_code.csv
-	@echo "4. Profile real workload Arxiv Summarization RPS=3..."
-	python3 -m llm_execution_time_predictor.llm_forward_predictor_cli profile_real --model $(MODEL_PATH) --output_file profile_output/arxiv_summarization_rps_3.jsonl --max_job_send_time 60 --max_rps 3 --max_window_time 300 --data_file llm_execution_time_predictor/monkey_patch_sglang/data/arxiv_summarization_stats_llama2_tokenizer_filtered_v2.csv
-	@echo "Profile testing completed!"
+	python3 -m llm_execution_time_predictor.llm_forward_predictor_cli profile prefill --model-path $(MODEL_PATH) --load-format dummy --output-dir profile_output --tp-size $(TP)
+	# @echo "2. Profile prefill with cache..."
+	# python3 -m llm_execution_time_predictor.llm_forward_predictor_cli profile prefill-prefix-cache --model-path $(MODEL_PATH) --load-format dummy --output-dir profile_output --tp-size $(TP)
+	# @echo "3. Profile decode..."
+	# python3 -m llm_execution_time_predictor.llm_forward_predictor_cli profile decode --model-path $(MODEL_PATH) --load-format dummy --output-dir profile_output --tp-size $(TP)
+	# @echo "4. Profile real workload Splitwise Code RPS=5..."
+	# python3 -m llm_execution_time_predictor.llm_forward_predictor_cli profile_real --model $(MODEL_PATH) --output_file profile_output/splitwise_code_rps_5.jsonl --max_job_send_time 60 --max_rps 5 --max_window_time 300 --data_file llm_execution_time_predictor/monkey_patch_sglang/data/splitwise_code.csv --tp $(TP)
+	# @echo "4. Profile real workload Splitwise Code RPS=10..."
+	# python3 -m llm_execution_time_predictor.llm_forward_predictor_cli profile_real --model $(MODEL_PATH) --output_file profile_output/splitwise_code_rps_10.jsonl --max_job_send_time 60 --max_rps 2 --max_window_time 300 --data_file llm_execution_time_predictor/monkey_patch_sglang/data/splitwise_code.csv --tp $(TP)
+	# @echo "4. Profile real workload Arxiv Summarization RPS=3..."
+	# python3 -m llm_execution_time_predictor.llm_forward_predictor_cli profile_real --model $(MODEL_PATH) --output_file profile_output/arxiv_summarization_rps_3.jsonl --max_job_send_time 60 --max_rps 3 --max_window_time 300 --data_file llm_execution_time_predictor/monkey_patch_sglang/data/arxiv_summarization_stats_llama2_tokenizer_filtered_v2.csv --tp $(TP)
+	# @echo "Profile testing completed!"
