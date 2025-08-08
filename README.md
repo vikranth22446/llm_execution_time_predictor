@@ -1,7 +1,5 @@
 # LLM Execution Time Predictor
 
-[![PyPI version](https://img.shields.io/pypi/v/llm-execution-time-predictor.svg)](https://pypi.org/project/llm-execution-time-predictor/)
-
 A small utility to help train a regression model given to predict prefill/decode times. 
 By using the batch size and input, the prefill/decode execution times are very predictable.
 
@@ -13,12 +11,7 @@ The tool https://modal.com/llm-almanac/advisor is nice visualizer but it doesn't
 
 ## Installation
 
-### Option 1: Install from PyPI (Recommended)
-```bash
-pip install llm_execution_time_predictor
-```
-
-### Option 2: Install from Source
+### Install from Source
 ```bash
 pip install -r requirements.txt
 ```
