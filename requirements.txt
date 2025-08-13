@@ -6,4 +6,4 @@ matplotlib
 scikit-learn
 pandas
 plotly
-dvc
+dvc[gdrive]
