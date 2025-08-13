@@ -40,3 +40,4 @@ htmlcov/
 .local
 *.json
 *.jsonl
+/profile_output_a100
