@@ -5,10 +5,10 @@ import sys
 from pathlib import Path
 
 # Import the existing argument parsing functions
-try:
-    from sglang_batch_latency import ServerArgs, BenchArgs, main as sglang_main
-except ImportError as e:
-    from .sglang_batch_latency import ServerArgs, BenchArgs, main as sglang_main
+from llm_execution_time_predictor.sglang_batch_latency import (BenchArgs,
+                                                               ServerArgs)
+from llm_execution_time_predictor.sglang_batch_latency import \
+    main as sglang_main
 
 # Get the directory containing this script
 SCRIPT_DIR = Path(__file__).parent
@@ -46,10 +46,10 @@ def profile_real(args):
 
     # Create output directory structure with Model_name_TP_{} pattern
     if args.output_file:
-        tp_size = getattr(args, 'tp_size', 1)
+        tp_size = getattr(args, "tp_size", 1)
         model_name = args.model.replace("/", "_").replace("-", "_")
         subfolder_name = f"{model_name}_TP_{tp_size}"
-        
+
         # Create base directory if output_file contains path
         if "/" in args.output_file:
             base_dir = os.path.dirname(args.output_file)
@@ -57,10 +57,10 @@ def profile_real(args):
         else:
             base_dir = "profiling_output"
             filename = args.output_file
-            
+
         output_path = os.path.join(base_dir, subfolder_name)
         os.makedirs(output_path, exist_ok=True)
-        
+
         full_output_path = os.path.join(output_path, filename)
         env["SGLANG_PROFILE_OUTPUT"] = full_output_path
         args.output_file = full_output_path  # Update args for command construction
@@ -87,8 +87,8 @@ def profile_real(args):
 
     if args.max_window_time:
         cmd.extend(["--max_window_time", str(args.max_window_time)])
-    
-    if hasattr(args, 'tp_size'):
+
+    if hasattr(args, "tp_size"):
         cmd.extend(["--tp_size", str(args.tp_size)])
 
     print(f"Running: {' '.join(cmd)}")

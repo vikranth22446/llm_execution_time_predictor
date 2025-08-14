@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-import os, shlex, subprocess, threading
+import os
+import shlex
+import subprocess
+import threading
 
 JOBS = [
     # ("Qwen/Qwen3-4B",  [1]),

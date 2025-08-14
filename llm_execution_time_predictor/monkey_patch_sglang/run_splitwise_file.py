@@ -1,22 +1,20 @@
-from tqdm.asyncio import tqdm_asyncio  # arrivated_at,prefill,decode
-import pandas as pd
 import asyncio
-import sglang as sgl
-import numpy as np
 import os
-import tempfile
 import random
+import tempfile
 import uuid
 
+import numpy as np
+import pandas as pd
+import sglang as sgl
+from tqdm.asyncio import tqdm_asyncio
 random_filename = str(uuid.uuid4())
 random_filepath = f"{random_filename}_model_runner_profile.jsonl"
-# Set environment variables
 os.environ["SGLANG_ENABLE_PROFILING"] = "1"
 
 if not os.environ["SGLANG_PROFILE_OUTPUT"]:
     os.environ["SGLANG_PROFILE_OUTPUT"] = random_filepath
 
-# Add current directory to PYTHONPATH for subprocesses
 current_dir = os.path.dirname(os.path.abspath(__file__))
 existing_pythonpath = os.environ.get("PYTHONPATH", "")
 if existing_pythonpath:
@@ -33,13 +31,17 @@ async def data_generator(data_file, max_rps, rps_scale=1.0):
     arrivated_timestamps_availabe = False
     if "arrivated_at" in df.columns:
         arrivated_timestamps_availabe = True
-        df["timestamp_filtered"] = df[df["arrived_at"] > 300]["arrived_at"].astype(float)
+        df["timestamp_filtered"] = df[df["arrived_at"] > 300]["arrived_at"].astype(
+            float
+        )
         df["time_inter_arrival"] = df["timestamp_filtered"].diff().astype(float)
     for index, row in df.iterrows():
         if arrivated_timestamps_availabe:
             interarrval_time: float = row["time_inter_arrival"]
             interarrval_time = (
-                min(interarrval_time, 1.0 / max_rps) if max_rps > 0 else interarrval_time
+                min(interarrval_time, 1.0 / max_rps)
+                if max_rps > 0
+                else interarrval_time
             ) * rps_scale
         else:
             interarrval_time = 1.0 / max_rps if max_rps > 0 else 0.0
@@ -97,7 +99,13 @@ async def launch_jobs(
 
 
 async def main(
-    model, data_file, max_job_send_time, max_rps, rps_scale, max_window_time=None, tp_size=1
+    model,
+    data_file,
+    max_job_send_time,
+    max_rps,
+    rps_scale,
+    max_window_time=None,
+    tp_size=1,
 ):
     engine = sgl.Engine(model_path=model, tp_size=tp_size)
     await asyncio.create_task(
@@ -128,7 +136,9 @@ if __name__ == "__main__":
         default=None,
         help="Maximum time (seconds) to wait for all jobs to complete before cancelling",
     )
-    parser.add_argument("--tp_size", type=int, default=1, help="Tensor parallelism size")
+    parser.add_argument(
+        "--tp_size", type=int, default=1, help="Tensor parallelism size"
+    )
     args = parser.parse_args()
     asyncio.run(
         main(

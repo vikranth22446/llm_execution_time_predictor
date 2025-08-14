@@ -1,5 +1,5 @@
-import dataclasses
 import argparse
+import dataclasses
 from typing import Tuple
 
 
