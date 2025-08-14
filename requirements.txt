@@ -6,4 +6,4 @@ matplotlib
 scikit-learn
 pandas
 plotly
-dvc[gdrive]
+gdvc==0.0.1
