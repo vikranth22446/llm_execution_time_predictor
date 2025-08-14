@@ -4,12 +4,12 @@
     "v0": {
       "url": "https://drive.google.com/drive/folders/1zA78FEnMV1tzU7MvclEXEKBzJHDa7cRN?usp=sharing",
       "local_path": ".",
-      "is_public": false,
+      "is_public": true,
       "git_commit": "52377ed5c3adfd611807affd893f7210b8dcb39c"
     }
   },
   "current_version": "v0",
-  "public_version": null,
+  "public_version": "v0",
   "tracked_directories": [
     "profile_output_a100"
   ]
