@@ -40,4 +40,5 @@ htmlcov/
 .local
 *.json
 *.jsonl
-/profile_output_a100
+
+!.gdvc_config.json

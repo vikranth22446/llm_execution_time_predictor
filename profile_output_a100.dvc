@@ -1,6 +1,0 @@
-outs:
-- md5: eb671823a08fc8097152fe66d21ec20d.dir
-  size: 43528393
-  nfiles: 43
-  hash: md5
-  path: profile_output_a100

@@ -1,0 +1,16 @@
+{
+  "drive_folder_url": "https://drive.google.com/drive/folders/1925ZfplOAhVZ4xknMSQXKYyDtIz_yqB4",
+  "versions": {
+    "v0": {
+      "url": "https://drive.google.com/drive/folders/1zA78FEnMV1tzU7MvclEXEKBzJHDa7cRN?usp=sharing",
+      "local_path": ".",
+      "is_public": false,
+      "git_commit": "52377ed5c3adfd611807affd893f7210b8dcb39c"
+    }
+  },
+  "current_version": "v0",
+  "public_version": null,
+  "tracked_directories": [
+    "profile_output_a100"
+  ]
+}
