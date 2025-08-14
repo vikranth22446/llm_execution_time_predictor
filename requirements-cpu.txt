@@ -1,4 +1,3 @@
-sglang[all]
 fire
 gradio
 numpy

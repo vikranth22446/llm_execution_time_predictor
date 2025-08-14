@@ -1,12 +1,13 @@
-import torch
-import os
-import time
-import json
-import threading
-from typing import Any, Dict, Optional
-from queue import Queue, Empty
-from contextlib import suppress
 import fcntl
+import json
+import os
+import threading
+import time
+from contextlib import suppress
+from queue import Empty, Queue
+from typing import Any, Dict, Optional
+
+import torch
 
 if os.environ.get("SGLANG_ENABLE_PROFILING") == "1":
     write_queue = Queue()

@@ -8,5 +8,5 @@ pandas
 plotly
 gdvc==0.0.1
 lightgbm
-onnxruntime
+onnxruntime-gpu
 skl2onnx

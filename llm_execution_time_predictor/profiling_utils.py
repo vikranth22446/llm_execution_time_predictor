@@ -1,23 +1,22 @@
-import numpy as np
 import json
+import time
+from typing import Any, Callable, List, Optional, Tuple, Union
+
+import numpy as np
 import torch
-from typing import List, Optional, Tuple, Any, Union, Callable
+import torch.distributed as dist
+from sglang.srt.configs.model_config import ModelConfig
+from sglang.srt.hf_transformers_utils import get_tokenizer
 from sglang.srt.managers.schedule_batch import Req, ScheduleBatch
 from sglang.srt.managers.scheduler import Scheduler
 from sglang.srt.model_executor.forward_batch_info import ForwardBatch
 from sglang.srt.model_executor.model_runner import ModelRunner
 from sglang.srt.sampling.sampling_params import SamplingParams
 from sglang.srt.speculative.spec_info import SpeculativeAlgorithm
-from sglang.srt.utils import (
-    require_mlp_sync,
-    require_mlp_tp_gather,
-    suppress_other_loggers,
-)
+from sglang.srt.utils import (require_mlp_sync, require_mlp_tp_gather,
+                              suppress_other_loggers)
+
 from llm_execution_time_predictor.args import BenchArgs
-from sglang.srt.configs.model_config import ModelConfig
-import time
-from sglang.srt.hf_transformers_utils import get_tokenizer
-import torch.distributed as dist
 
 
 @torch.no_grad
