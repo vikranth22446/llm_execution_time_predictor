@@ -82,20 +82,13 @@ The trained predictor file format:
 Feature order: `[num_new_tokens, prod_ext_ctx, num_context_tokens, batch_size]`
 
 # Downloading/Saving Model Files
-In order to track files, I'm using [dvc\[gdrive\]](https://dvc.org/doc/user-guide/data-management/remote-storage/google-drive).
+In order to track files, the repo uses [gdvc](https://github.com/vikranth22446/gdvc_mini)
 
-To download all my files:
+To download latest public files:
 ```
-dvc pull
+gdvc update
 ```
-
-To connect your own model hub add:
-```
-dvc remote modify gdrive gdrive_client_id <ADD your dvc hub>
-dvc remote modify gdrive gdrive_client_secret 
-```
-
-Then use `dvc commit` to update files
+Check the gdvc docs for adding more or using your root.
 
 # Ack
 Co-contributors: [Dongming Li](https://github.com/dongmingli-Ben) and [Zijian He](https://github.com/jiange91) helped inspired the workflow
