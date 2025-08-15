@@ -12,4 +12,3 @@ COPY . /workspace/
 
 RUN if [ -f requirements-cpu.txt ]; then pip install -r requirements-cpu.txt; fi
 
-CMD ["/bin/bash"]

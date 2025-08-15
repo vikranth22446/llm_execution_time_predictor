@@ -9,6 +9,11 @@ from llm_execution_time_predictor.sglang_batch_latency import (BenchArgs,
                                                                ServerArgs)
 from llm_execution_time_predictor.sglang_batch_latency import \
     main as sglang_main
+from llm_execution_time_predictor.train_utils import (
+    run_lightgbm_training_pipeline_and_save,
+    get_model_prefill_path_from_model_path,
+    get_decode_path_from_model_path
+)
 
 # Get the directory containing this script
 SCRIPT_DIR = Path(__file__).parent
@@ -98,6 +103,63 @@ def profile_real(args):
     return subprocess.run(cmd, env=env)
 
 
+def train_pipeline(args):
+    """Train machine learning models for latency prediction."""
+    folder_path = Path(args.folder)
+    
+    if not folder_path.exists():
+        print(f"Error: Folder path {folder_path} does not exist.")
+        return 1
+    
+    if folder_path.is_file() or any(f.suffix == ".jsonl" for f in folder_path.iterdir() if f.is_file()):
+        model_paths = [folder_path]
+    else:
+        model_paths = [p for p in folder_path.iterdir() if p.is_dir()]
+    
+    if not model_paths:
+        print(f"No valid model paths found in {folder_path}")
+        return 1
+    
+    results = []
+    for model_path in model_paths:
+        print(f"Training models for {model_path}")
+        try:
+            if args.prefill_model_output_path:
+                prefill_output = Path(args.prefill_model_output_path)
+            else:
+                prefill_output = get_model_prefill_path_from_model_path(model_path)
+            
+            if args.decode_model_output_path:
+                decode_output = Path(args.decode_model_output_path)
+            else:
+                decode_output = get_decode_path_from_model_path(model_path)
+            
+            _, _, _ = run_lightgbm_training_pipeline_and_save(
+                model_path, prefill_output, decode_output
+            )
+            
+            results.append({
+                'model_path': str(model_path),
+                'prefill_model_path': str(prefill_output),
+                'decode_model_path': str(decode_output)
+            })
+            print(f"Successfully trained models for {model_path}")
+            print(f"  Prefill model: {prefill_output}")
+            print(f"  Decode model: {decode_output}")
+            
+        except Exception as e:
+            print(f"Error training models for {model_path}: {e}")
+            continue
+    
+    print(f"\nTrained models for {len(results)} out of {len(model_paths)} model paths:")
+    for result in results:
+        print(f"Model: {result['model_path']}")
+        print(f"  Prefill: {result['prefill_model_path']}")
+        print(f"  Decode: {result['decode_model_path']}")
+    
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="LLM Forward Predictor CLI",
@@ -115,6 +177,9 @@ def main():
 
             # Profile real workload
             %(prog)s profile_real --model Qwen/Qwen3-8B --output_file qwen3_8b_log.jsonl --max_job_send_time 10
+            
+            # Train latency prediction models
+            %(prog)s train --folder /path/to/model/profile/data
         """,
     )
 
@@ -182,6 +247,27 @@ def main():
     real_parser.add_argument(
         "--tp_size", type=int, default=1, help="Tensor parallelism size"
     )
+    
+    # Train command
+    train_parser = subparsers.add_parser(
+        "train", help="Train latency prediction models"
+    )
+    train_parser.add_argument(
+        "--folder", 
+        type=str, 
+        required=True, 
+        help="Path to folder containing model profile data or single model path"
+    )
+    train_parser.add_argument(
+        "--prefill-model-output-path",
+        type=str,
+        help="Custom output path for prefill model (default: <model_path>/prefill_model.onnx)"
+    )
+    train_parser.add_argument(
+        "--decode-model-output-path", 
+        type=str,
+        help="Custom output path for decode model (default: <model_path>/decode_model.onnx)"
+    )
 
     args = parser.parse_args()
 
@@ -214,6 +300,8 @@ def main():
     elif args.command == "profile_real":
         result = profile_real(args)
         return result.returncode if result else 0
+    elif args.command == "train":
+        return train_pipeline(args)
     else:
         parser.print_help()
         return 1
