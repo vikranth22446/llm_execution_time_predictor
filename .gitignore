@@ -43,3 +43,4 @@ htmlcov/
 
 !.gdvc_config.json
 profile_output_a100/
+.specs

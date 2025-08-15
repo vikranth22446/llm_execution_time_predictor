@@ -111,12 +111,9 @@ def train_pipeline(args):
         print(f"Error: Folder path {folder_path} does not exist.")
         return 1
     
-    # Handle folder vs single model path
     if folder_path.is_file() or any(f.suffix == ".jsonl" for f in folder_path.iterdir() if f.is_file()):
-        # Single model path
         model_paths = [folder_path]
     else:
-        # Directory containing multiple model paths
         model_paths = [p for p in folder_path.iterdir() if p.is_dir()]
     
     if not model_paths:
@@ -127,7 +124,6 @@ def train_pipeline(args):
     for model_path in model_paths:
         print(f"Training models for {model_path}")
         try:
-            # Determine output paths
             if args.prefill_model_output_path:
                 prefill_output = Path(args.prefill_model_output_path)
             else:
@@ -138,7 +134,6 @@ def train_pipeline(args):
             else:
                 decode_output = get_decode_path_from_model_path(model_path)
             
-            # Run training pipeline
             _, _, _ = run_lightgbm_training_pipeline_and_save(
                 model_path, prefill_output, decode_output
             )
@@ -156,7 +151,6 @@ def train_pipeline(args):
             print(f"Error training models for {model_path}: {e}")
             continue
     
-    # Print summary
     print(f"\nTrained models for {len(results)} out of {len(model_paths)} model paths:")
     for result in results:
         print(f"Model: {result['model_path']}")
