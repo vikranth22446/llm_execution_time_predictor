@@ -337,7 +337,7 @@ class DecodeStrategy(ProfilingStrategy):
             forward_mode="decode",
         )
         runner.req_to_token_pool.clear()
-        runner.token_to_kv_pool_allocator.clear()
+        runner.token_to_kv_pool.clear()
         return profiling_results
 
     def output_filename(self, prefix: str, tp_rank: int) -> str:

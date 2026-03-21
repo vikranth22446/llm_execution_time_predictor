@@ -28,14 +28,13 @@ import torch.distributed as dist
 from sglang.srt.configs.model_config import ModelConfig
 from sglang.srt.distributed.parallel_state import \
     destroy_distributed_environment
-from sglang.srt.entrypoints.engine import _set_envs_and_config
+from sglang.srt.server import _set_envs_and_config
 from sglang.srt.managers.schedule_batch import Req, ScheduleBatch
 from sglang.srt.managers.scheduler import Scheduler
 from sglang.srt.model_executor.forward_batch_info import ForwardBatch
 from sglang.srt.model_executor.model_runner import ModelRunner
 from sglang.srt.sampling.sampling_params import SamplingParams
 from sglang.srt.server_args import PortArgs, ServerArgs
-from sglang.srt.speculative.spec_info import SpeculativeAlgorithm
 from sglang.srt.utils import (configure_logger, get_bool_env_var,
                               kill_process_tree, set_gpu_proc_affinity)
 from tqdm import tqdm
@@ -351,7 +350,7 @@ def latency_test_run_once(
 
     # Clear the pools.
     model_runner.req_to_token_pool.clear()
-    model_runner.token_to_kv_pool_allocator.clear()
+    model_runner.token_to_kv_pool.clear()
 
     measurement_results = {
         "run_name": run_name,

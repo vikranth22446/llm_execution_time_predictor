@@ -12,9 +12,7 @@ from sglang.srt.managers.scheduler import Scheduler
 from sglang.srt.model_executor.forward_batch_info import ForwardBatch
 from sglang.srt.model_executor.model_runner import ModelRunner
 from sglang.srt.sampling.sampling_params import SamplingParams
-from sglang.srt.speculative.spec_info import SpeculativeAlgorithm
-from sglang.srt.utils import (require_mlp_sync, require_mlp_tp_gather,
-                              suppress_other_loggers)
+from sglang.srt.utils import suppress_other_loggers
 
 from llm_execution_time_predictor.args import BenchArgs
 
@@ -26,18 +24,15 @@ def extend(
     batch = ScheduleBatch.init_new(
         reqs=reqs,
         req_to_token_pool=model_runner.req_to_token_pool,
-        token_to_kv_pool_allocator=model_runner.token_to_kv_pool_allocator,
+        token_to_kv_pool=model_runner.token_to_kv_pool,
         tree_cache=None,
         model_config=model_runner.model_config,
         enable_overlap=False,
-        spec_algorithm=SpeculativeAlgorithm.NONE,
-        enable_custom_logit_processor=False,
     )
     batch.prepare_for_extend()
-    _maybe_prepare_mlp_sync_batch(batch, model_runner)
     model_worker_batch = batch.get_model_worker_batch()
     forward_batch = ForwardBatch.init_new(model_worker_batch, model_runner)
-    logits_output, _ = model_runner.forward(forward_batch)
+    logits_output = model_runner.forward(forward_batch)
     next_token_ids = model_runner.sample(logits_output, forward_batch)
     return (
         next_token_ids,
@@ -53,30 +48,12 @@ def decode(
 ) -> Tuple[List[int], torch.Tensor]:
     batch.output_ids = input_token_ids
     batch.prepare_for_decode()
-    _maybe_prepare_mlp_sync_batch(batch, model_runner)
     model_worker_batch = batch.get_model_worker_batch()
     forward_batch = ForwardBatch.init_new(model_worker_batch, model_runner)
-    logits_output, _ = model_runner.forward(forward_batch)
+    logits_output = model_runner.forward(forward_batch)
     next_token_ids = model_runner.sample(logits_output, forward_batch)
     return next_token_ids, logits_output.next_token_logits
 
-
-def _maybe_prepare_mlp_sync_batch(
-    batch: ScheduleBatch, model_runner: ModelRunner
-) -> None:
-    if require_mlp_sync(model_runner.server_args):
-        Scheduler.prepare_mlp_sync_batch_raw(
-            batch,
-            dp_size=model_runner.server_args.dp_size,
-            attn_tp_size=1,
-            tp_group=model_runner.tp_group,
-            get_idle_batch=None,
-            disable_cuda_graph=model_runner.server_args.disable_cuda_graph,
-            spec_algorithm=SpeculativeAlgorithm.NONE,
-            speculative_num_draft_tokens=None,
-            require_mlp_tp_gather=require_mlp_tp_gather(model_runner.server_args),
-            disable_overlap_schedule=model_runner.server_args.disable_overlap_schedule,
-        )
 
 
 def prepare_synthetic_inputs_for_latency_test(
@@ -175,7 +152,7 @@ def run_prefill_config(
     """
     if clear_cache:
         model_runner.req_to_token_pool.clear()
-        model_runner.token_to_kv_pool_allocator.clear()
+        model_runner.token_to_kv_pool.clear()
     if reqs is None:
         reqs = prepare_synthetic_inputs_for_latency_test(
             len(skewed_batch_lens), max(skewed_batch_lens), skewed_batch_lens
@@ -362,15 +339,22 @@ def load_model(server_args, port_args, tp_rank: int) -> Tuple[ModelRunner, Any]:
         print if tp_rank == 0 else lambda *args, **kwargs: None
     )
 
-    model_config = ModelConfig.from_server_args(server_args)
+    model_config = ModelConfig(
+        server_args.model_path,
+        trust_remote_code=server_args.trust_remote_code,
+        revision=server_args.revision,
+        context_length=server_args.context_length,
+        model_override_args=server_args.json_model_override_args,
+        is_embedding=server_args.is_embedding,
+        dtype=server_args.dtype,
+        quantization=server_args.quantization,
+    )
     model_runner = ModelRunner(
         model_config=model_config,
         mem_fraction_static=server_args.mem_fraction_static,
         gpu_id=tp_rank,
         tp_rank=tp_rank,
         tp_size=server_args.tp_size,
-        pp_rank=0,
-        pp_size=server_args.pp_size,
         nccl_port=port_args.nccl_port,
         server_args=server_args,
     )
